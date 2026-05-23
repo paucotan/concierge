@@ -467,3 +467,54 @@ pub fn run() {
             }
         });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_home_dir() {
+        let home = get_home_dir();
+        assert!(!home.is_empty());
+    }
+
+    #[test]
+    fn test_save_and_load_env_config() {
+        let env_path = PathBuf::from(get_home_dir()).join(".concierge").join(".env");
+        let backup = if env_path.exists() {
+            std::fs::read_to_string(&env_path).ok()
+        } else {
+            None
+        };
+
+        let test_url = "http://test-server-url:5007".to_string();
+        let test_password = "test_password_123".to_string();
+        let test_sync_id = "test-sync-id-abc".to_string();
+        let test_gdrive_id = "test-gdrive-id-xyz".to_string();
+
+        // Test save
+        let save_res = save_env_config(
+            test_url.clone(),
+            test_password.clone(),
+            test_sync_id.clone(),
+            test_gdrive_id.clone(),
+        );
+        assert!(save_res.is_ok());
+
+        // Test load
+        let load_res = load_env_config();
+        assert!(load_res.is_ok());
+        let val = load_res.unwrap();
+        assert_eq!(val["actual_url"], serde_json::Value::String(test_url));
+        assert_eq!(val["actual_password"], serde_json::Value::String(test_password));
+        assert_eq!(val["actual_sync_id"], serde_json::Value::String(test_sync_id));
+        assert_eq!(val["gdrive_folder_id"], serde_json::Value::String(test_gdrive_id));
+
+        // Restore backup or clean up
+        if let Some(backup_content) = backup {
+            let _ = std::fs::write(&env_path, backup_content);
+        } else {
+            let _ = std::fs::remove_file(&env_path);
+        }
+    }
+}
