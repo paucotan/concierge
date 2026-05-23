@@ -390,6 +390,33 @@ fn save_env_config(
     std::fs::write(env_path, content).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn list_ollama_models(base_url: String) -> Result<Vec<String>, String> {
+    let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
+    
+    let output = std::process::Command::new("curl")
+        .args(["-s", "-m", "5", &url])
+        .output()
+        .map_err(|e| e.to_string())?;
+    
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| e.to_string())?;
+    
+    let mut models = Vec::new();
+    if let Some(models_array) = json.get("models").and_then(|m| m.as_array()) {
+        for m in models_array {
+            if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
+                models.push(name.to_string());
+            }
+        }
+    }
+    Ok(models)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -475,7 +502,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![run_bank_sync, run_export, get_uncategorized_count, get_suggestions, apply_categories, launch_dashboard, get_weekly_brief, load_ai_config, save_ai_config, load_env_config, save_env_config])
+        .invoke_handler(tauri::generate_handler![run_bank_sync, run_export, get_uncategorized_count, get_suggestions, apply_categories, launch_dashboard, get_weekly_brief, load_ai_config, save_ai_config, load_env_config, save_env_config, list_ollama_models])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app_handle, event| {

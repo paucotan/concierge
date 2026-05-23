@@ -99,11 +99,29 @@ A bell icon (🔔) will appear in your top macOS menu bar. Clicking it opens the
 ---
 
 
-## Configuration
+## Configuration & Setup
 
-Concierge dynamically auto-resolves your Node executable and runs scripts from the internal `budgeting` subfolder by default (with automated fallbacks or custom overrides if configured). 
+Concierge manages all credentials, budget URLs, and AI settings directly via the **⚙ Settings** panel (found at the bottom of the popup window). You do not need to manually configure `.env` files. Clicking **Save** in Settings automatically creates and writes configuration profiles to `~/.concierge/`.
 
-If you have a custom folder layout, you can direct Concierge to your budgeting workspace using one of these options:
+### AI Auto-Categorization Options
+Concierge supports three AI provider modes to analyze and suggest category rules:
+
+1. **Ollama (Local LLM - Default):**
+   - Runs transaction categorization entirely locally.
+   - **Prerequisites:** Requires [Ollama](https://ollama.com/) to be installed and running on your system.
+   - **Model Auto-Detection:** The **⚙ Settings** panel dynamically queries your local Ollama instance (`/api/tags`) to auto-detect your downloaded models (e.g. `gemma4:e4b`). You can select them directly from the input text field's autocomplete options.
+2. **OpenAI-Compatible (Cloud APIs):**
+   - Connects to OpenAI, OpenRouter, DeepSeek, Groq, or other custom endpoint services.
+   - **Prerequisites:** Requires your provider's API Key and model name (e.g., `gpt-4o-mini`, `deepseek-chat`). You can specify custom Base URLs directly in settings.
+3. **Claude CLI:**
+   - Uses a local installation of the Claude CLI tool.
+   - **Prerequisites:** Requires the `claude` command line tool binary located at `~/.local/bin/claude`.
+
+---
+
+## Directory Customization (Advanced)
+
+Concierge automatically resolves scripts from the bundled resource assets by default. If you prefer to direct Concierge to run files from a custom git workspace location on your filesystem:
 1. **Environment Variable:** Set `BUDGETING_DIR=/absolute/path/to/budgeting` in your shell environment.
 2. **Configuration File:** Create a file named `~/.concierge-config.json` containing:
    ```json
@@ -111,14 +129,6 @@ If you have a custom folder layout, you can direct Concierge to your budgeting w
      "budgeting_dir": "/absolute/path/to/your/budgeting/folder"
    }
    ```
-
-### Configuring the AI Provider
-In the Concierge tray popover:
-1. Click the **⚙ AI** button.
-2. Choose your provider:
-   - **Claude CLI:** Uses the local Anthropic Claude CLI tool setup.
-   - **Ollama (local):** Specify your local model name (e.g. `gemma4:e4b`) and base URL (e.g. `http://localhost:11434`).
-3. Click **Save**.
 
 ---
 

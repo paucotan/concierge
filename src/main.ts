@@ -580,6 +580,27 @@ function toggleAIFields(provider: string) {
   resizeToContent();
 }
 
+async function refreshOllamaModels() {
+  const provider = (document.getElementById('settings-provider') as HTMLSelectElement).value;
+  const datalist = document.getElementById('settings-ollama-models-list')!;
+  datalist.innerHTML = '';
+  if (provider !== 'ollama') return;
+
+  const baseUrlInput = document.getElementById('settings-ollama-url') as HTMLInputElement;
+  const baseUrl = baseUrlInput.value.trim() || 'http://localhost:11434';
+
+  try {
+    const models = await invoke<string[]>('list_ollama_models', { baseUrl });
+    for (const m of models) {
+      const opt = document.createElement('option');
+      opt.value = m;
+      datalist.appendChild(opt);
+    }
+  } catch (err) {
+    console.warn('Failed to fetch Ollama models', err);
+  }
+}
+
 async function initSettingsPanel() {
   const rawAI = await invoke<string>('load_ai_config');
   const aiConfig: AIConfig = JSON.parse(rawAI);
@@ -594,6 +615,7 @@ async function initSettingsPanel() {
   (document.getElementById('settings-api-key') as HTMLInputElement).value = apiKey;
 
   toggleAIFields(aiConfig.provider);
+  await refreshOllamaModels();
 
   try {
     const envConfig = await invoke<EnvConfig>('load_env_config');
@@ -621,8 +643,14 @@ document.getElementById('btn-settings-close')?.addEventListener('click', () => {
   resizeToContent();
 });
 
-document.getElementById('settings-provider')?.addEventListener('change', (e) => {
-  toggleAIFields((e.target as HTMLSelectElement).value);
+document.getElementById('settings-provider')?.addEventListener('change', async (e) => {
+  const val = (e.target as HTMLSelectElement).value;
+  toggleAIFields(val);
+  await refreshOllamaModels();
+});
+
+document.getElementById('settings-ollama-url')?.addEventListener('blur', async () => {
+  await refreshOllamaModels();
 });
 
 document.getElementById('btn-settings-save')?.addEventListener('click', async () => {
