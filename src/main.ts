@@ -226,7 +226,11 @@ async function onSyncData() {
     clearInterval(progressTimer);
     // Return to synced state so user can retry
     setState('synced');
-    appendHeroError('Categorize failed — try again.');
+    let friendly = String(err);
+    if (friendly.includes('Connection refused') || friendly.includes('connect') || friendly.includes('exit code 7')) {
+      friendly = 'Could not connect to Ollama. Please check if Ollama is running, or select a different provider in Settings.';
+    }
+    appendHeroError(friendly);
   }
 }
 
