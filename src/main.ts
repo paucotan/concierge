@@ -100,7 +100,7 @@ function renderHero() {
       check.textContent = 'Accounts synced.';
       hero.appendChild(check);
 
-      const btn = makeHeroButton('Categorize & Export →', onSyncData);
+      const btn = makeHeroButton('Categorize Transactions →', onSyncData);
       btn.id = 'btn-run';
       hero.appendChild(btn);
       break;
@@ -126,7 +126,7 @@ function renderHero() {
     }
 
     case 'done': {
-      hero.appendChild(makeStatusText(doneMsg || 'Exported.'));
+      hero.appendChild(makeStatusText(doneMsg || 'Done.'));
       break;
     }
   }
@@ -215,7 +215,7 @@ async function onSyncData() {
     pendingSuggestions = result.suggestions;
 
     if (pendingSuggestions.length === 0) {
-      await runExport(true);
+      await finishCategorize(true);
     } else {
       setState('reviewing');
       renderReviewPanel(pendingSuggestions, allCategories);
@@ -230,20 +230,13 @@ async function onSyncData() {
   }
 }
 
-async function runExport(fromCategorize = false) {
+async function finishCategorize(fromCategorize = false) {
   if (fromCategorize) {
     setState('synced-clean');
   }
-  try {
-    const result = await invoke<string>('run_export');
-    doneMsg = result || 'Exported.';
-    loadBrief(true);
-    setState('done');
-  } catch (err) {
-    doneMsg = 'Export failed.';
-    setState('done');
-    appendHeroError(String(err));
-  }
+  doneMsg = 'Transactions categorized.';
+  loadBrief(true);
+  setState('done');
 }
 
 function appendHeroError(msg: string) {
@@ -320,7 +313,7 @@ document.getElementById('btn-apply')?.addEventListener('click', async () => {
     const count = await invoke<string>('apply_categories', { json: JSON.stringify(payload) });
     document.getElementById('review-panel')!.classList.add('hidden');
     setApplyStatus(`${count} transaction${count === '1' ? '' : 's'} categorized.`, false);
-    await runExport();
+    await finishCategorize();
   } catch (err) {
     setApplyStatus(String(err), true);
   } finally {
@@ -548,25 +541,37 @@ getCurrentWindow().listen('tauri://show', playWelcome);
 // ── AI Settings ────────────────────────────────────────────────────────────
 
 interface AIConfig {
-  provider: 'claude' | 'ollama';
-  ollama: { model: string; baseUrl: string };
+  provider: 'claude' | 'ollama' | 'openai';
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  ollama?: { model: string; baseUrl: string };
 }
 
 interface EnvConfig {
   actual_url: string;
   actual_password: string;
   actual_sync_id: string;
-  gdrive_folder_id: string;
 }
 
-function toggleOllamaFields(show: boolean) {
+function toggleAIFields(provider: string) {
   const fields = document.getElementById('settings-ollama-fields')!;
-  if (show) {
-    fields.classList.remove('hidden');
-    fields.classList.add('flex');
-  } else {
+  const keyContainer = document.getElementById('settings-apiKey-container')!;
+  
+  if (provider === 'claude') {
     fields.classList.add('hidden');
     fields.classList.remove('flex');
+  } else {
+    fields.classList.remove('hidden');
+    fields.classList.add('flex');
+    
+    if (provider === 'openai') {
+      keyContainer.classList.remove('hidden');
+      keyContainer.classList.add('flex');
+    } else {
+      keyContainer.classList.add('hidden');
+      keyContainer.classList.remove('flex');
+    }
   }
   resizeToContent();
 }
@@ -575,16 +580,22 @@ async function initSettingsPanel() {
   const rawAI = await invoke<string>('load_ai_config');
   const aiConfig: AIConfig = JSON.parse(rawAI);
   (document.getElementById('settings-provider') as HTMLSelectElement).value = aiConfig.provider;
-  (document.getElementById('settings-ollama-model') as HTMLInputElement).value = aiConfig.ollama?.model ?? 'gemma4:e4b';
-  (document.getElementById('settings-ollama-url') as HTMLInputElement).value = aiConfig.ollama?.baseUrl ?? 'http://localhost:11434';
-  toggleOllamaFields(aiConfig.provider === 'ollama');
+
+  const model = aiConfig.model || aiConfig.ollama?.model || 'gemma2:2b';
+  const baseUrl = aiConfig.baseUrl || aiConfig.ollama?.baseUrl || 'http://localhost:11434';
+  const apiKey = aiConfig.apiKey ?? '';
+
+  (document.getElementById('settings-ollama-model') as HTMLInputElement).value = model;
+  (document.getElementById('settings-ollama-url') as HTMLInputElement).value = baseUrl;
+  (document.getElementById('settings-api-key') as HTMLInputElement).value = apiKey;
+
+  toggleAIFields(aiConfig.provider);
 
   try {
     const envConfig = await invoke<EnvConfig>('load_env_config');
     (document.getElementById('settings-actual-url') as HTMLInputElement).value = envConfig.actual_url ?? 'http://localhost:5007';
     (document.getElementById('settings-actual-password') as HTMLInputElement).value = envConfig.actual_password ?? '';
     (document.getElementById('settings-actual-sync-id') as HTMLInputElement).value = envConfig.actual_sync_id ?? '';
-    (document.getElementById('settings-gdrive-id') as HTMLInputElement).value = envConfig.gdrive_folder_id ?? '';
   } catch (err) {
     console.error('Failed to load env config', err);
   }
@@ -607,19 +618,19 @@ document.getElementById('btn-settings-close')?.addEventListener('click', () => {
 });
 
 document.getElementById('settings-provider')?.addEventListener('change', (e) => {
-  toggleOllamaFields((e.target as HTMLSelectElement).value === 'ollama');
+  toggleAIFields((e.target as HTMLSelectElement).value);
 });
 
 document.getElementById('btn-settings-save')?.addEventListener('click', async () => {
-  const provider = (document.getElementById('settings-provider') as HTMLSelectElement).value as 'claude' | 'ollama';
-  const model = (document.getElementById('settings-ollama-model') as HTMLInputElement).value.trim() || 'gemma4:e4b';
-  const baseUrl = (document.getElementById('settings-ollama-url') as HTMLInputElement).value.trim() || 'http://localhost:11434';
-  const aiConfig: AIConfig = { provider, ollama: { model, baseUrl } };
+  const provider = (document.getElementById('settings-provider') as HTMLSelectElement).value as 'claude' | 'ollama' | 'openai';
+  const model = (document.getElementById('settings-ollama-model') as HTMLInputElement).value.trim();
+  const baseUrl = (document.getElementById('settings-ollama-url') as HTMLInputElement).value.trim();
+  const apiKey = (document.getElementById('settings-api-key') as HTMLInputElement).value.trim();
+  const aiConfig: AIConfig = { provider, model, baseUrl, apiKey };
 
   const actualUrl = (document.getElementById('settings-actual-url') as HTMLInputElement).value.trim() || 'http://localhost:5007';
   const actualPassword = (document.getElementById('settings-actual-password') as HTMLInputElement).value.trim();
   const actualSyncId = (document.getElementById('settings-actual-sync-id') as HTMLInputElement).value.trim();
-  const gdriveFolderId = (document.getElementById('settings-gdrive-id') as HTMLInputElement).value.trim();
 
   const statusEl = document.getElementById('settings-status')!;
   try {
@@ -628,7 +639,6 @@ document.getElementById('btn-settings-save')?.addEventListener('click', async ()
       actualUrl,
       actualPassword,
       actualSyncId,
-      gdriveFolderId,
     });
     statusEl.textContent = 'Saved.';
     statusEl.className = 'text-[9px] text-green-400/50 text-center min-h-[12px]';

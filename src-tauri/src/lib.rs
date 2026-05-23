@@ -327,7 +327,7 @@ async fn launch_dashboard(app: tauri::AppHandle) -> Result<String, String> {
 fn load_ai_config() -> String {
     let config_path = PathBuf::from(get_home_dir()).join(".concierge").join("ai-provider.json");
     std::fs::read_to_string(config_path)
-        .unwrap_or_else(|_| r#"{"provider":"claude","ollama":{"model":"gemma4:e4b","baseUrl":"http://localhost:11434"}}"#.to_string())
+        .unwrap_or_else(|_| r#"{"provider":"ollama","model":"gemma2:2b","baseUrl":"http://localhost:11434"}"#.to_string())
 }
 
 #[tauri::command]
@@ -348,7 +348,6 @@ fn load_env_config() -> Result<serde_json::Value, String> {
     config.insert("actual_url".to_string(), serde_json::Value::String("http://localhost:5007".to_string()));
     config.insert("actual_password".to_string(), serde_json::Value::String("".to_string()));
     config.insert("actual_sync_id".to_string(), serde_json::Value::String("".to_string()));
-    config.insert("gdrive_folder_id".to_string(), serde_json::Value::String("".to_string()));
     
     if env_path.exists() {
         if let Ok(content) = std::fs::read_to_string(env_path) {
@@ -361,7 +360,6 @@ fn load_env_config() -> Result<serde_json::Value, String> {
                         "ACTUAL_SERVER_URL" => { config.insert("actual_url".to_string(), serde_json::Value::String(val.to_string())); },
                         "ACTUAL_PASSWORD" => { config.insert("actual_password".to_string(), serde_json::Value::String(val.to_string())); },
                         "ACTUAL_SYNC_ID" => { config.insert("actual_sync_id".to_string(), serde_json::Value::String(val.to_string())); },
-                        "GDRIVE_FOLDER_ID" => { config.insert("gdrive_folder_id".to_string(), serde_json::Value::String(val.to_string())); },
                         _ => {}
                     }
                 }
@@ -377,7 +375,6 @@ fn save_env_config(
     actual_url: String,
     actual_password: String,
     actual_sync_id: String,
-    gdrive_folder_id: String,
 ) -> Result<(), String> {
     let config_dir = PathBuf::from(get_home_dir()).join(".concierge");
     if !config_dir.exists() {
@@ -386,8 +383,8 @@ fn save_env_config(
     let env_path = config_dir.join(".env");
     
     let content = format!(
-        "ACTUAL_SERVER_URL={}\nACTUAL_PASSWORD={}\nACTUAL_SYNC_ID={}\nGDRIVE_FOLDER_ID={}\n",
-        actual_url, actual_password, actual_sync_id, gdrive_folder_id
+        "ACTUAL_SERVER_URL={}\nACTUAL_PASSWORD={}\nACTUAL_SYNC_ID={}\n",
+        actual_url, actual_password, actual_sync_id
     );
     
     std::fs::write(env_path, content).map_err(|e| e.to_string())
@@ -515,14 +512,12 @@ mod tests {
         let test_url = "http://test-server-url:5007".to_string();
         let test_password = "test_password_123".to_string();
         let test_sync_id = "test-sync-id-abc".to_string();
-        let test_gdrive_id = "test-gdrive-id-xyz".to_string();
 
         // Test save
         let save_res = save_env_config(
             test_url.clone(),
             test_password.clone(),
             test_sync_id.clone(),
-            test_gdrive_id.clone(),
         );
         assert!(save_res.is_ok());
 
@@ -533,7 +528,6 @@ mod tests {
         assert_eq!(val["actual_url"], serde_json::Value::String(test_url));
         assert_eq!(val["actual_password"], serde_json::Value::String(test_password));
         assert_eq!(val["actual_sync_id"], serde_json::Value::String(test_sync_id));
-        assert_eq!(val["gdrive_folder_id"], serde_json::Value::String(test_gdrive_id));
 
         // Restore backup or clean up
         if let Some(backup_content) = backup {
