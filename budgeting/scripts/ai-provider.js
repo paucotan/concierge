@@ -3,7 +3,9 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const CONFIG_PATH = path.join(__dirname, 'ai-provider.json');
+const CONFIG_PATH = fs.existsSync(path.join(process.cwd(), 'ai-provider.json'))
+  ? path.join(process.cwd(), 'ai-provider.json')
+  : path.join(__dirname, 'ai-provider.json');
 const DEFAULTS = {
   provider: 'claude',
   ollama: { model: 'gemma4:e4b', baseUrl: 'http://localhost:11434' },

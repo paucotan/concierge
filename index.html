@@ -65,13 +65,15 @@
 
       </div>
 
-      <!-- AI Settings Panel (hidden until toggled) -->
+      <!-- Settings Panel (hidden until toggled) -->
       <div id="settings-panel" class="hidden border-t border-white/8 px-3 py-3">
         <div class="flex items-center justify-between mb-3">
-          <span class="text-white/50 text-[10px] font-medium tracking-widest uppercase">AI Provider</span>
+          <span class="text-white/50 text-[10px] font-medium tracking-widest uppercase">Settings</span>
           <button id="btn-settings-close" class="text-white/25 hover:text-white/50 text-[10px] transition-colors cursor-pointer">✕</button>
         </div>
-        <div class="flex flex-col gap-2.5">
+        <div class="flex flex-col gap-2.5 max-h-[240px] overflow-y-auto pr-0.5">
+          <!-- AI Section -->
+          <span class="text-white/30 text-[8px] font-medium tracking-widest uppercase">AI Provider</span>
           <div class="flex items-center justify-between">
             <label class="text-[10px] text-white/45">Provider</label>
             <select id="settings-provider" class="text-[10px] bg-white/8 border border-white/10 text-white/60 rounded px-1.5 py-0.5 cursor-pointer">
@@ -91,6 +93,33 @@
                 class="text-[10px] bg-white/8 border border-white/10 text-white/60 rounded px-1.5 py-0.5 w-[130px] outline-none focus:border-white/25" />
             </div>
           </div>
+          
+          <!-- Divider -->
+          <div class="border-t border-white/5 my-1"></div>
+
+          <!-- Actual Budget Section -->
+          <span class="text-white/30 text-[8px] font-medium tracking-widest uppercase">Actual Budget</span>
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] text-white/45">Server URL</label>
+            <input id="settings-actual-url" type="text" placeholder="http://localhost:5007"
+              class="text-[10px] bg-white/8 border border-white/10 text-white/60 rounded px-1.5 py-0.5 w-[130px] outline-none focus:border-white/25" />
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] text-white/45">Password</label>
+            <input id="settings-actual-password" type="password" placeholder="••••••••"
+              class="text-[10px] bg-white/8 border border-white/10 text-white/60 rounded px-1.5 py-0.5 w-[130px] outline-none focus:border-white/25" />
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] text-white/45">Sync ID</label>
+            <input id="settings-actual-sync-id" type="text" placeholder="your sync id"
+              class="text-[10px] bg-white/8 border border-white/10 text-white/60 rounded px-1.5 py-0.5 w-[130px] outline-none focus:border-white/25" />
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] text-white/45">GDrive ID (Opt)</label>
+            <input id="settings-gdrive-id" type="text" placeholder="folder id"
+              class="text-[10px] bg-white/8 border border-white/10 text-white/60 rounded px-1.5 py-0.5 w-[130px] outline-none focus:border-white/25" />
+          </div>
+
           <button id="btn-settings-save"
             class="w-full text-[10px] py-1 rounded-md bg-white/8 hover:bg-white/12 text-white/60 hover:text-white/90 transition-all cursor-pointer border border-white/8">
             Save
