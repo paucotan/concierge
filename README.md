@@ -78,30 +78,28 @@ git clone https://github.com/username/concierge.git
 cd concierge
 ```
 
-### 2. Configure Your Budgeting Environment
-Go to the internal `budgeting/scripts` directory, set up your `.env` configuration, and install dependencies:
+### 2. Install Dependencies
+Install dependencies for both the Tauri application and the background scripting runners:
 ```bash
-cd budgeting/scripts
-cp .env.example .env
-# Open the .env file and fill in your Actual server credentials (server url, password, sync id)
+# Install root Tauri/Vite dependencies
 npm install
+
+# Install budgeting script dependencies
+cd budgeting/scripts && npm install
 ```
 
-### 3. Run Concierge in Development Mode
-Go back to the root `concierge` folder, install dependencies, and launch the Tauri app:
+### 3. Launch Concierge
+Navigate back to the root folder and start the app in development mode:
 ```bash
 cd ../..
-npm install
 npm run tauri dev
 ```
-A bell icon (🔔) will appear in your top macOS menu bar. Clicking it opens the Concierge overlay.
+A bell icon (🔔) will appear in your top macOS menu bar. Click it to open the Concierge command center.
+
+### 4. Direct Configuration
+Open the **⚙ Settings** panel at the bottom of the popup. Enter your Actual Budget server URL, Password, and Sync ID, and select your AI provider. Click **Save** to write these directly to `~/.concierge/.env` (no manual file editing or terminal config script runs required!).
 
 ---
-
-
-## Configuration & Setup
-
-Concierge manages all credentials, budget URLs, and AI settings directly via the **⚙ Settings** panel (found at the bottom of the popup window). You do not need to manually configure `.env` files. Clicking **Save** in Settings automatically creates and writes configuration profiles to `~/.concierge/`.
 
 ### AI Auto-Categorization Options
 Concierge supports three AI provider modes to analyze and suggest category rules:
