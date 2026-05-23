@@ -90,8 +90,9 @@
             </div>
             <div class="flex items-center justify-between">
               <label class="text-[10px] text-white/45">Model</label>
-              <input id="settings-ollama-model" type="text" placeholder="gemma4:e4b"
+              <input id="settings-ollama-model" list="settings-ollama-models-list" type="text" placeholder="gemma4:e4b"
                 class="text-[10px] bg-white/8 border border-white/10 text-white/60 rounded px-1.5 py-0.5 w-[130px] outline-none focus:border-white/25" />
+              <datalist id="settings-ollama-models-list"></datalist>
             </div>
             <div class="flex items-center justify-between">
               <label class="text-[10px] text-white/45">Base URL</label>
