@@ -8,7 +8,7 @@ const CONFIG_PATH = fs.existsSync(path.join(process.cwd(), 'ai-provider.json'))
   : path.join(__dirname, 'ai-provider.json');
 const DEFAULTS = {
   provider: 'ollama',
-  model: 'gemma2:2b',
+  model: 'gemma4:e4b',
   baseUrl: 'http://localhost:11434',
 };
 
@@ -24,7 +24,7 @@ function callAI(prompt) {
   const config = loadConfig();
   if (config.provider === 'ollama') {
     const ollamaCfg = config.ollama || {};
-    const model = config.model || ollamaCfg.model || 'gemma2:2b';
+    const model = config.model || ollamaCfg.model || 'gemma4:e4b';
     const baseUrl = config.baseUrl || ollamaCfg.baseUrl || 'http://localhost:11434';
     return callOllama(prompt, { model, baseUrl });
   } else if (config.provider === 'openai') {
@@ -49,7 +49,7 @@ function callClaude(prompt, config = {}) {
 
 function callOllama(prompt, cfg) {
   const body = JSON.stringify({
-    model: cfg.model || 'gemma2:2b',
+    model: cfg.model || 'gemma4:e4b',
     prompt,
     stream: false,
   });

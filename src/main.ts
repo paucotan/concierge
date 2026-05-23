@@ -581,7 +581,7 @@ async function initSettingsPanel() {
   const aiConfig: AIConfig = JSON.parse(rawAI);
   (document.getElementById('settings-provider') as HTMLSelectElement).value = aiConfig.provider;
 
-  const model = aiConfig.model || aiConfig.ollama?.model || 'gemma2:2b';
+  const model = aiConfig.model || aiConfig.ollama?.model || 'gemma4:e4b';
   const baseUrl = aiConfig.baseUrl || aiConfig.ollama?.baseUrl || 'http://localhost:11434';
   const apiKey = aiConfig.apiKey ?? '';
 

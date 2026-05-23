@@ -327,7 +327,7 @@ async fn launch_dashboard(app: tauri::AppHandle) -> Result<String, String> {
 fn load_ai_config() -> String {
     let config_path = PathBuf::from(get_home_dir()).join(".concierge").join("ai-provider.json");
     std::fs::read_to_string(config_path)
-        .unwrap_or_else(|_| r#"{"provider":"ollama","model":"gemma2:2b","baseUrl":"http://localhost:11434"}"#.to_string())
+        .unwrap_or_else(|_| r#"{"provider":"ollama","model":"gemma4:e4b","baseUrl":"http://localhost:11434"}"#.to_string())
 }
 
 #[tauri::command]
