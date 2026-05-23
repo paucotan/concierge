@@ -628,7 +628,94 @@ async function loadAdvisorBrief() {
 
 // ── AI Advisor ───────────────────────────────────────────────────────────
 
-function appendAdvisorMessage(role, content) {
+// ── AI Advisor ───────────────────────────────────────────────────────────
+
+function createActionCard(action) {
+  const card = document.createElement('div');
+  card.className = 'mt-3 p-3 bg-indigo-500/10 border border-indigo-500/25 rounded-xl space-y-2 fade-in';
+  
+  let desc = '';
+  if (action.command === 'update_transactions') {
+    const filters = [];
+    if (action.filters.payee_name) filters.push(`payee matches "${action.filters.payee_name}"`);
+    if (action.filters.category_name) filters.push(`category matches "${action.filters.category_name}"`);
+    if (action.filters.startDate) filters.push(`since ${action.filters.startDate}`);
+    
+    const updates = [];
+    if (action.updates.category_name) updates.push(`set category to "${action.updates.category_name}"`);
+    if (action.updates.payee_name) updates.push(`set payee to "${action.updates.payee_name}"`);
+    if (action.updates.notes) updates.push(`set notes to "${action.updates.notes}"`);
+
+    desc = `Update transactions where ${filters.length ? filters.join(' and ') : 'all'} to ${updates.join(', ')}.`;
+  } else if (action.command === 'create_rule') {
+    const conds = action.conditions.map(c => `${c.field} ${c.op} "${c.value}"`);
+    const acts = action.actions.map(a => `${a.op} ${a.field} "${a.value}"`);
+    desc = `Create rule: If ${conds.join(' and ')} then ${acts.join(', ')}.`;
+  } else {
+    desc = `Execute action: ${action.command}`;
+  }
+
+  card.innerHTML = `
+    <div class="text-[10px] text-indigo-400 font-semibold tracking-wide uppercase">Proposed Action</div>
+    <div class="text-white/80 text-[11px] font-medium leading-relaxed">${esc(desc)}</div>
+    <div class="text-white/35 text-[9px] leading-tight">Please review and confirm to apply this change to your budget.</div>
+    <div class="flex gap-2 mt-2" id="action-buttons">
+      <button id="btn-confirm-action" class="flex-1 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md transition-all">Confirm</button>
+      <button id="btn-cancel-action" class="flex-1 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 text-xs font-medium transition-all">Cancel</button>
+    </div>
+    <div id="action-status" class="hidden text-xs font-medium pt-1"></div>
+  `;
+
+  const btnConfirm = card.querySelector('#btn-confirm-action');
+  const btnCancel = card.querySelector('#btn-cancel-action');
+  const btnArea = card.querySelector('#action-buttons');
+  const statusDiv = card.querySelector('#action-status');
+
+  btnConfirm.addEventListener('click', async () => {
+    btnConfirm.disabled = true;
+    btnCancel.disabled = true;
+    btnConfirm.textContent = 'Applying...';
+    
+    try {
+      const res = await fetch('/api/advisor/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const e = await res.json();
+        throw new Error(e.error || res.statusText);
+      }
+      const data = await res.json();
+      btnArea.remove();
+      statusDiv.className = 'text-green-400/80 text-xs font-medium pt-1 fade-in';
+      statusDiv.textContent = `✓ Applied: ${data.message || 'Success'}`;
+      statusDiv.classList.remove('hidden');
+
+      // Refresh the dashboard automatically in real-time
+      loadDashboard();
+      
+    } catch (err) {
+      btnConfirm.disabled = false;
+      btnCancel.disabled = false;
+      btnConfirm.textContent = 'Confirm';
+      statusDiv.className = 'text-red-400/80 text-xs font-medium pt-1 fade-in';
+      statusDiv.textContent = `✗ Failed: ${err.message}`;
+      statusDiv.classList.remove('hidden');
+    }
+  });
+
+  btnCancel.addEventListener('click', () => {
+    btnArea.remove();
+    statusDiv.className = 'text-white/20 text-xs font-medium pt-1 fade-in';
+    statusDiv.textContent = `✗ Cancelled`;
+    statusDiv.classList.remove('hidden');
+  });
+
+  return card;
+}
+
+function appendAdvisorMessage(role, content, action = null) {
   const messages = document.getElementById('advisor-messages');
   const placeholder = document.getElementById('advisor-placeholder');
   if (placeholder) placeholder.remove();
@@ -649,8 +736,13 @@ function appendAdvisorMessage(role, content) {
     div.className = 'text-red-400/60 text-xs';
     div.textContent = `Error: ${content}`;
   } else {
-    div.className = 'advisor-msg text-white/60 text-xs leading-relaxed';
+    div.className = 'advisor-msg text-white/60 text-xs leading-relaxed space-y-2';
     div.innerHTML = marked.parse(content);
+
+    if (action) {
+      const card = createActionCard(action);
+      div.appendChild(card);
+    }
   }
 
   messages.appendChild(div);
@@ -679,9 +771,9 @@ async function loadAdvisor() {
       body: JSON.stringify({ month: currentMonth, question, history: conversationHistory }),
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
-    const { insights } = await res.json();
+    const { insights, action } = await res.json();
     loadingEl.remove();
-    appendAdvisorMessage('assistant', insights);
+    appendAdvisorMessage('assistant', insights, action);
     if (question) conversationHistory.push({ role: 'user', content: question });
     conversationHistory.push({ role: 'assistant', content: insights });
     advisorMonth = currentMonth;

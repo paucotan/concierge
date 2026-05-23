@@ -220,6 +220,27 @@ app.get('/api/export', async (req, res) => {
   }
 });
 
+// Resolvers for categories and payees using exact/fuzzy name matching
+async function resolveCategoryUuid(name) {
+  if (!name) return null;
+  const categories = await api.getCategories();
+  const exact = categories.find(c => c.name.toLowerCase() === name.toLowerCase());
+  if (exact) return exact.id;
+  const fuzzy = categories.find(c => c.name.toLowerCase().includes(name.toLowerCase()));
+  if (fuzzy) return fuzzy.id;
+  return null;
+}
+
+async function resolvePayeeUuid(name) {
+  if (!name) return null;
+  const payees = await api.getPayees();
+  const exact = payees.find(p => p.name.toLowerCase() === name.toLowerCase());
+  if (exact) return exact.id;
+  const fuzzy = payees.find(p => p.name.toLowerCase().includes(name.toLowerCase()));
+  if (fuzzy) return fuzzy.id;
+  return null;
+}
+
 // POST /api/advisor  { month, question, history }
 app.post('/api/advisor', (req, res) => {
   const { month, question = '', history = [] } = req.body || {};
@@ -242,8 +263,172 @@ app.post('/api/advisor', (req, res) => {
   if (result.error || result.status !== 0) {
     return res.status(500).json({ error: (result.stderr || result.error?.message || 'Unknown error').trim() });
   }
-  res.json({ insights: result.stdout.trim() });
+
+  const rawOutput = result.stdout.trim();
+  try {
+    const data = JSON.parse(rawOutput);
+    res.json(data);
+  } catch (err) {
+    res.json({ insights: rawOutput, action: null });
+  }
 });
+
+// POST /api/advisor/execute  { action }
+app.post('/api/advisor/execute', async (req, res) => {
+  const { action } = req.body || {};
+  if (!action) return res.status(400).json({ error: 'action is required' });
+
+  try {
+    if (action.command === 'update_transactions') {
+      let categoryId = null;
+      let payeeId = null;
+
+      if (action.updates.category_name) {
+        categoryId = await resolveCategoryUuid(action.updates.category_name);
+        if (!categoryId) {
+          return res.status(400).json({ error: `Category "${action.updates.category_name}" not found.` });
+        }
+      }
+      if (action.updates.payee_name) {
+        payeeId = await resolvePayeeUuid(action.updates.payee_name);
+        if (!payeeId) {
+          payeeId = await api.createPayee({ name: action.updates.payee_name });
+        }
+      }
+
+      // Fetch all transactions to filter
+      const { data: allTxns } = await runQuery(
+        q('transactions')
+          .filter({ is_parent: false })
+          .select(['id', 'account', 'date', 'amount', 'payee', 'category', 'notes'])
+      );
+
+      const accounts = await api.getAccounts();
+      const payees = await api.getPayees();
+      const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]));
+      const payeeMap = Object.fromEntries(payees.map(p => [p.id, p]));
+
+      function resolveTxnPayeeName(t) {
+        if (!t.payee) return '';
+        const p = payeeMap[t.payee];
+        if (!p) return '';
+        return p.transfer_acct ? (accountMap[p.transfer_acct] || p.name) : p.name;
+      }
+
+      let matchedTxns = allTxns;
+
+      // Apply filters
+      if (action.filters.payee_name) {
+        const matchPayee = action.filters.payee_name.toLowerCase();
+        matchedTxns = matchedTxns.filter(t => {
+          const payeeName = resolveTxnPayeeName(t).toLowerCase();
+          return payeeName.includes(matchPayee);
+        });
+      }
+      if (action.filters.category_name) {
+        const categoriesList = await api.getCategories();
+        const catMap = Object.fromEntries(categoriesList.map(c => [c.id, c.name]));
+        const matchCat = action.filters.category_name.toLowerCase();
+        matchedTxns = matchedTxns.filter(t => {
+          const catName = (t.category ? (catMap[t.category] || '') : '').toLowerCase();
+          return catName.includes(matchCat);
+        });
+      }
+      if (action.filters.startDate) {
+        matchedTxns = matchedTxns.filter(t => t.date >= action.filters.startDate);
+      }
+      if (action.filters.endDate) {
+        matchedTxns = matchedTxns.filter(t => t.date < action.filters.endDate);
+      }
+
+      if (matchedTxns.length === 0) {
+        return res.json({ success: true, updatedCount: 0, message: 'No transactions matched the filters.' });
+      }
+
+      // Update matching transactions
+      for (const t of matchedTxns) {
+        const updates = {};
+        if (categoryId) updates.category = categoryId;
+        if (payeeId) updates.payee = payeeId;
+        if (action.updates.notes !== undefined) updates.notes = action.updates.notes;
+        await api.updateTransaction(t.id, updates);
+      }
+
+      await buildLookups();
+
+      return res.json({
+        success: true,
+        updatedCount: matchedTxns.length,
+        message: `Successfully updated ${matchedTxns.length} transaction(s).`
+      });
+
+    } else if (action.command === 'create_rule') {
+      let stage = action.stage;
+      if (stage !== 'pre' && stage !== 'post') {
+        stage = null;
+      }
+      const rule = {
+        stage: stage,
+        conditionsOp: action.conditionsOp || 'and',
+        conditions: [],
+        actions: []
+      };
+
+      // Resolve conditions
+      for (const cond of action.conditions) {
+        let val = cond.value;
+        if (cond.field === 'payee' && (cond.op === 'is' || cond.op === 'contains')) {
+          const pId = await resolvePayeeUuid(val);
+          if (pId) val = pId;
+          else if (cond.op === 'is') {
+            val = await api.createPayee({ name: val });
+          }
+        } else if (cond.field === 'category' && cond.op === 'is') {
+          const cId = await resolveCategoryUuid(val);
+          if (cId) val = cId;
+          else {
+            return res.status(400).json({ error: `Category "${val}" not found in condition.` });
+          }
+        }
+        rule.conditions.push({ field: cond.field, op: cond.op, value: val });
+      }
+
+      // Resolve actions
+      for (const act of action.actions) {
+        let val = act.value;
+        if (act.field === 'category' && act.op === 'set') {
+          const cId = await resolveCategoryUuid(val);
+          if (cId) val = cId;
+          else {
+            return res.status(400).json({ error: `Category "${val}" not found in action.` });
+          }
+        } else if (act.field === 'payee' && act.op === 'set') {
+          const pId = await resolvePayeeUuid(val);
+          if (pId) val = pId;
+          else {
+            val = await api.createPayee({ name: val });
+          }
+        }
+        rule.actions.push({ field: act.field, op: act.op, value: val });
+      }
+
+      const createdRule = await api.createRule(rule);
+      await buildLookups();
+
+      return res.json({
+        success: true,
+        ruleId: createdRule.id,
+        message: `Successfully created new rule.`
+      });
+
+    } else {
+      return res.status(400).json({ error: `Unknown command "${action.command}"` });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 
 // GET /api/advisor-brief — auto-generated monthly snapshot for advisor opening message
 app.get('/api/advisor-brief', (req, res) => {

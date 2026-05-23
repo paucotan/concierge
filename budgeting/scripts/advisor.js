@@ -209,7 +209,57 @@ async function run() {
   const defaultQuestion = 'Analyze my spending for the most recent month. Give me 5-7 specific, data-backed insights about patterns, notable changes vs prior months, and 1-2 actionable suggestions.';
   const question = userQuestion || defaultQuestion;
 
-  const prompt = `=== FINANCIAL DATA ===
+  const activeCategories = categories.filter(c => !c.hidden).map(c => c.name);
+  const categoryListStr = activeCategories.map(name => `"${name}"`).join(', ');
+
+  const systemInstructions = `You are a financial advisor and assistant. You can analyze data, answer questions, and also propose database modification actions based on user requests.
+
+Your response MUST be a single, valid JSON object with EXACTLY the following structure (do not wrap in markdown or backticks):
+{
+  "insights": "Your text response or analysis here, formatted in markdown.",
+  "action": null or ActionObject
+}
+
+ActionObject must be one of:
+1. For changing existing transactions (e.g. "change all transactions with Tim Hortons to category Food" or "rename payee AMZ_123 to Amazon"):
+{
+  "command": "update_transactions",
+  "filters": {
+    "payee_name": "string (optional, name of payee to filter by)",
+    "category_name": "string (optional, name of category to filter by)"
+  },
+  "updates": {
+    "category_name": "string (optional, category name to set)",
+    "payee_name": "string (optional, payee name to set)",
+    "notes": "string (optional, notes to set)"
+  }
+}
+
+2. For creating rules (e.g. "create a rule to mark AMZ as Amazon" or "always categorize Starbuck as Dining"):
+{
+  "command": "create_rule",
+  "conditions": [
+    {
+      "field": "payee" | "category" | "amount",
+      "op": "is" | "contains" | "is_approximate",
+      "value": "string"
+    }
+  ],
+  "actions": [
+    {
+      "field": "payee" | "category",
+      "op": "set",
+      "value": "string"
+    }
+  ]
+}
+
+VALID CATEGORIES FOR CATEGORIZATION (Only use these exact names when setting category_name or action category value):
+[${categoryListStr}]`;
+
+  const prompt = `${systemInstructions}
+
+=== FINANCIAL DATA ===
 Most recent month: ${monthLabel(focusMonth)}
 
 MONTHLY OVERVIEW
@@ -238,12 +288,27 @@ ${conversationHistory.slice(-6).map(m => `${m.role === 'user' ? 'User' : 'Assist
 ` : ''}=== USER QUESTION ===
 ${question}
 
-Answer using only the data above and conversation history if relevant. Be specific — use actual numbers from the data. Format your response as a concise markdown bullet list. No generic advice.`;
+Answer using only the data above and conversation history if relevant. If the user asks you to change, update, categorize, or create rules for transactions, you must populate the "action" field with the corresponding ActionObject, and explain what you will do in "insights". Otherwise, set "action" to null.
+Be specific in "insights" — use actual numbers from the data when answering questions. Format "insights" as markdown.`;
 
   const aiOutput = callAI(prompt);
 
+  let responseObj;
+  try {
+    let cleaned = aiOutput.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(json)?\n/, '').replace(/\n```$/, '');
+    }
+    responseObj = JSON.parse(cleaned);
+  } catch (e) {
+    responseObj = {
+      insights: aiOutput,
+      action: null
+    };
+  }
+
   process.stdout.write = _origWrite;
-  process.stdout.write(aiOutput);
+  process.stdout.write(JSON.stringify(responseObj));
 }
 
 run().catch(err => {

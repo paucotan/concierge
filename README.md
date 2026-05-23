@@ -20,6 +20,7 @@ Its primary built-in utility is the **Budget Control Center**, which integrates 
 - 📋 **In-App Review Panel:** Inspect AI categorization suggestions and apply them all with a single click before exporting.
 - 📊 **Quick Metrics Widget:** Displays a prorated "Weekly Brief" badge (e.g. `🟢 on track` or `🔴 2 over`) and expandable category spending stats right in the popup.
 - 🖥️ **Dashboard Server Control:** Starts your local budget server and opens the rich web dashboard in your default browser.
+- 💬 **Interactive AI Advisor & Natural Language Updates:** Chat with the AI Advisor on the web dashboard to ask financial questions, trigger bulk transaction categorizations/renames (e.g. *"change payee AMZ_123 to Amazon"*), or create automation rules (e.g. *"categorize all future Popeyes as Dining"*). Features a **visual confirmation card** before committing changes to your budget.
 
 ---
 
@@ -37,8 +38,11 @@ Here is the standard workflow when using Concierge to manage your personal budge
 3. **Auto-Categorization:**
    - Once bank feeds are successfully loaded, any uncategorized transactions are automatically processed. Concierge analyzes them using your chosen AI Provider (Claude API or a local Ollama model) based on your spending rules.
    - You can review these proposed categories within the interactive panel in the Concierge menu bar window, adjust any selections, and approve them in bulk.
-4. **Accessing the Dashboard:**
+4. **Accessing the Dashboard & AI Advisor Modifications:**
    - Clicking **Open Dashboard** starts your local budget dashboard server (`dashboard-server.js`) and opens `http://localhost:5008` in your default browser for detailed analytics.
+   - **Interactive Advisor Commands:** Ask the AI Advisor questions about your spending directly in the chat sidebar.
+   - **Natural Language Updates:** Propose changes using conversational commands (e.g., *"change all transactions with Roast King to Dining / Takeout"*, or *"create a rule so that any 'AMZ' transactions are marked as 'Amazon'"*). 
+   - **Visual Confirmation:** The dashboard renders a proposed action card with **Confirm** and **Cancel** buttons, allowing you to preview the database modifications before applying them. On confirmation, changes are applied and the dashboard reloads in real-time.
 
 ---
 
