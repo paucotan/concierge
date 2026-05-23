@@ -99,6 +99,13 @@ A bell icon (🔔) will appear in your top macOS menu bar. Click it to open the 
 ### 4. Direct Configuration
 Open the **⚙ Settings** panel at the bottom of the popup. Enter your Actual Budget server URL, Password, and Sync ID, and select your AI provider. Click **Save** to write these directly to `~/.concierge/.env` (no manual file editing or terminal config script runs required!).
 
+### 5. Link SimpleFIN to Actual Budget
+Before bank syncing can download transactions, you must link your SimpleFIN account inside your **Actual Budget** application:
+1. Log in to your **SimpleFIN Bridge** dashboard and click **New App Connection** to generate a one-time connection key (setup token).
+2. Open your **Actual Budget** application in your browser (usually `http://localhost:5007`).
+3. Navigate to **Settings**, scroll down to the **Bank Sync** section, click **Set up bank sync**, and select **SimpleFIN**.
+4. Paste the connection key you copied from SimpleFIN and save. Once this link is created inside Actual Budget, Concierge will be able to trigger the bank sync automatically in the background.
+
 ---
 
 ### AI Auto-Categorization Options
