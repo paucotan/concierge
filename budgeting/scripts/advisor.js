@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { callAI } = require('./ai-provider');
 
-const CACHE_DIR = path.join(__dirname, '.actual-cache');
+const CACHE_DIR = process.env.BUDGET_CACHE_DIR || path.join(process.cwd(), '.actual-cache');
 
 // Suppress @actual-app/api debug output from stdout
 const _origWrite = process.stdout.write.bind(process.stdout);

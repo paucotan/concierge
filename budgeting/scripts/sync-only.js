@@ -3,7 +3,7 @@ const api = require('@actual-app/api');
 const fs = require('fs');
 const path = require('path');
 
-const CACHE_DIR = path.join(__dirname, '.actual-cache');
+const CACHE_DIR = process.env.BUDGET_CACHE_DIR || path.join(process.cwd(), '.actual-cache');
 
 const _origWrite = process.stdout.write.bind(process.stdout);
 process.stdout.write = process.stderr.write.bind(process.stderr);

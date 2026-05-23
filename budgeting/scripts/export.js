@@ -5,7 +5,7 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
-const CACHE_DIR = path.join(__dirname, '.actual-cache');
+const CACHE_DIR = process.env.BUDGET_CACHE_DIR || path.join(process.cwd(), '.actual-cache');
 
 // Suppress @actual-app/api debug output ([Breadcrumb], sync logs) from stdout
 const _origWrite = process.stdout.write.bind(process.stdout);
@@ -86,7 +86,9 @@ async function exportTransactions() {
 
   // ── 6. Upload to Google Drive ─────────────────────────────
   const auth = new google.auth.GoogleAuth({
-    keyFile: path.join(__dirname, 'service-account.json'),
+    keyFile: fs.existsSync(path.join(process.cwd(), 'service-account.json'))
+      ? path.join(process.cwd(), 'service-account.json')
+      : path.join(__dirname, 'service-account.json'),
     scopes: ['https://www.googleapis.com/auth/drive'],
   });
   const drive = google.drive({ version: 'v3', auth });

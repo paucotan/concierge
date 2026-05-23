@@ -29,11 +29,18 @@ fn get_home_dir() -> String {
     })
 }
 
-fn get_budgeting_dir() -> PathBuf {
+fn get_budgeting_dir(app: &tauri::AppHandle) -> PathBuf {
     if let Ok(path_str) = std::env::var("BUDGETING_DIR") {
         let p = PathBuf::from(path_str);
         if p.exists() {
             return p;
+        }
+    }
+
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let bundled = res_dir.join("budgeting");
+        if bundled.exists() {
+            return bundled;
         }
     }
 
@@ -74,17 +81,22 @@ fn get_budgeting_dir() -> PathBuf {
 }
 
 #[tauri::command]
-async fn run_bank_sync() -> Result<String, String> {
-    let budgeting_dir = get_budgeting_dir();
+async fn run_bank_sync(app: tauri::AppHandle) -> Result<String, String> {
+    let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("sync-only.js");
-    let script_dir = budgeting_dir.join("scripts");
+    
+    let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
+    if !working_dir.exists() {
+        std::fs::create_dir_all(&working_dir).map_err(|e| e.to_string())?;
+    }
 
     let output = std::process::Command::new(&node_bin)
         .arg(&script_path)
-        .current_dir(&script_dir)
+        .current_dir(&working_dir)
         .env("HOME", get_home_dir())
         .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        .env("BUDGET_CACHE_DIR", working_dir.join(".actual-cache"))
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -96,17 +108,22 @@ async fn run_bank_sync() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn get_suggestions() -> Result<String, String> {
-    let budgeting_dir = get_budgeting_dir();
+async fn get_suggestions(app: tauri::AppHandle) -> Result<String, String> {
+    let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("categorize.js");
-    let script_dir = budgeting_dir.join("scripts");
+    
+    let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
+    if !working_dir.exists() {
+        std::fs::create_dir_all(&working_dir).map_err(|e| e.to_string())?;
+    }
 
     let output = std::process::Command::new(&node_bin)
         .arg(&script_path)
-        .current_dir(&script_dir)
+        .current_dir(&working_dir)
         .env("HOME", get_home_dir())
         .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        .env("BUDGET_CACHE_DIR", working_dir.join(".actual-cache"))
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -118,18 +135,23 @@ async fn get_suggestions() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn apply_categories(json: String) -> Result<String, String> {
+async fn apply_categories(app: tauri::AppHandle, json: String) -> Result<String, String> {
     use std::io::Write;
-    let budgeting_dir = get_budgeting_dir();
+    let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("apply-categories.js");
-    let script_dir = budgeting_dir.join("scripts");
+    
+    let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
+    if !working_dir.exists() {
+        std::fs::create_dir_all(&working_dir).map_err(|e| e.to_string())?;
+    }
 
     let mut child = std::process::Command::new(&node_bin)
         .arg(&script_path)
-        .current_dir(&script_dir)
+        .current_dir(&working_dir)
         .env("HOME", get_home_dir())
         .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        .env("BUDGET_CACHE_DIR", working_dir.join(".actual-cache"))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -150,17 +172,22 @@ async fn apply_categories(json: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn get_uncategorized_count() -> Result<u32, String> {
-    let budgeting_dir = get_budgeting_dir();
+async fn get_uncategorized_count(app: tauri::AppHandle) -> Result<u32, String> {
+    let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("count-uncategorized.js");
-    let script_dir = budgeting_dir.join("scripts");
+    
+    let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
+    if !working_dir.exists() {
+        std::fs::create_dir_all(&working_dir).map_err(|e| e.to_string())?;
+    }
 
     let output = std::process::Command::new(&node_bin)
         .arg(&script_path)
-        .current_dir(&script_dir)
+        .current_dir(&working_dir)
         .env("HOME", get_home_dir())
         .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        .env("BUDGET_CACHE_DIR", working_dir.join(".actual-cache"))
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -169,17 +196,22 @@ async fn get_uncategorized_count() -> Result<u32, String> {
 }
 
 #[tauri::command]
-async fn run_export() -> Result<String, String> {
-    let budgeting_dir = get_budgeting_dir();
+async fn run_export(app: tauri::AppHandle) -> Result<String, String> {
+    let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("export.js");
-    let script_dir = budgeting_dir.join("scripts");
+    
+    let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
+    if !working_dir.exists() {
+        std::fs::create_dir_all(&working_dir).map_err(|e| e.to_string())?;
+    }
 
     let output = std::process::Command::new(&node_bin)
         .arg(&script_path)
-        .current_dir(&script_dir)
+        .current_dir(&working_dir)
         .env("HOME", get_home_dir())
         .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        .env("BUDGET_CACHE_DIR", working_dir.join(".actual-cache"))
         .output()
         .map_err(|e| format!("Failed to start: {}", e))?;
 
@@ -191,17 +223,22 @@ async fn run_export() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn get_weekly_brief() -> Result<String, String> {
-    let budgeting_dir = get_budgeting_dir();
+async fn get_weekly_brief(app: tauri::AppHandle) -> Result<String, String> {
+    let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("weekly-brief.js");
-    let script_dir = budgeting_dir.join("scripts");
+    
+    let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
+    if !working_dir.exists() {
+        std::fs::create_dir_all(&working_dir).map_err(|e| e.to_string())?;
+    }
 
     let output = std::process::Command::new(&node_bin)
         .arg(&script_path)
-        .current_dir(&script_dir)
+        .current_dir(&working_dir)
         .env("HOME", get_home_dir())
         .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        .env("BUDGET_CACHE_DIR", working_dir.join(".actual-cache"))
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -213,12 +250,11 @@ async fn get_weekly_brief() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn launch_dashboard() -> Result<String, String> {
-    let budgeting_dir = get_budgeting_dir();
+async fn launch_dashboard(app: tauri::AppHandle) -> Result<String, String> {
+    let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("dashboard-server.js");
-    let script_dir = budgeting_dir.join("scripts");
-
+    
     // Kill any existing dashboard server on port 5008
     let _ = std::process::Command::new("lsof")
         .args(["-ti", ":5008"])
@@ -234,12 +270,18 @@ async fn launch_dashboard() -> Result<String, String> {
 
     std::thread::sleep(std::time::Duration::from_millis(500));
 
+    let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
+    if !working_dir.exists() {
+        std::fs::create_dir_all(&working_dir).map_err(|e| e.to_string())?;
+    }
+
     // Spawn dashboard server as a detached background process
     std::process::Command::new(&node_bin)
         .arg(&script_path)
-        .current_dir(&script_dir)
+        .current_dir(&working_dir)
         .env("HOME", get_home_dir())
         .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        .env("BUDGET_CACHE_DIR", working_dir.join(".actual-cache"))
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -258,18 +300,72 @@ async fn launch_dashboard() -> Result<String, String> {
 
 #[tauri::command]
 fn load_ai_config() -> String {
-    let budgeting_dir = get_budgeting_dir();
-    let config_path = budgeting_dir.join("scripts").join("ai-provider.json");
+    let config_path = PathBuf::from(get_home_dir()).join(".concierge").join("ai-provider.json");
     std::fs::read_to_string(config_path)
         .unwrap_or_else(|_| r#"{"provider":"claude","ollama":{"model":"gemma4:e4b","baseUrl":"http://localhost:11434"}}"#.to_string())
 }
 
 #[tauri::command]
 fn save_ai_config(json: String) -> Result<(), String> {
-    let budgeting_dir = get_budgeting_dir();
-    let config_path = budgeting_dir.join("scripts").join("ai-provider.json");
-    std::fs::write(config_path, json)
-        .map_err(|e| e.to_string())
+    let config_dir = PathBuf::from(get_home_dir()).join(".concierge");
+    if !config_dir.exists() {
+        std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    }
+    let config_path = config_dir.join("ai-provider.json");
+    std::fs::write(config_path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_env_config() -> Result<serde_json::Value, String> {
+    let env_path = PathBuf::from(get_home_dir()).join(".concierge").join(".env");
+    
+    let mut config = serde_json::Map::new();
+    config.insert("actual_url".to_string(), serde_json::Value::String("http://localhost:5007".to_string()));
+    config.insert("actual_password".to_string(), serde_json::Value::String("".to_string()));
+    config.insert("actual_sync_id".to_string(), serde_json::Value::String("".to_string()));
+    config.insert("gdrive_folder_id".to_string(), serde_json::Value::String("".to_string()));
+    
+    if env_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(env_path) {
+            for line in content.lines() {
+                let parts: Vec<&str> = line.splitn(2, '=').collect();
+                if parts.len() == 2 {
+                    let key = parts[0].trim();
+                    let val = parts[1].trim();
+                    match key {
+                        "ACTUAL_SERVER_URL" => { config.insert("actual_url".to_string(), serde_json::Value::String(val.to_string())); },
+                        "ACTUAL_PASSWORD" => { config.insert("actual_password".to_string(), serde_json::Value::String(val.to_string())); },
+                        "ACTUAL_SYNC_ID" => { config.insert("actual_sync_id".to_string(), serde_json::Value::String(val.to_string())); },
+                        "GDRIVE_FOLDER_ID" => { config.insert("gdrive_folder_id".to_string(), serde_json::Value::String(val.to_string())); },
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(serde_json::Value::Object(config))
+}
+
+#[tauri::command]
+fn save_env_config(
+    actual_url: String,
+    actual_password: String,
+    actual_sync_id: String,
+    gdrive_folder_id: String,
+) -> Result<(), String> {
+    let config_dir = PathBuf::from(get_home_dir()).join(".concierge");
+    if !config_dir.exists() {
+        std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    }
+    let env_path = config_dir.join(".env");
+    
+    let content = format!(
+        "ACTUAL_SERVER_URL={}\nACTUAL_PASSWORD={}\nACTUAL_SYNC_ID={}\nGDRIVE_FOLDER_ID={}\n",
+        actual_url, actual_password, actual_sync_id, gdrive_folder_id
+    );
+    
+    std::fs::write(env_path, content).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -357,7 +453,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![run_bank_sync, run_export, get_uncategorized_count, get_suggestions, apply_categories, launch_dashboard, get_weekly_brief, load_ai_config, save_ai_config])
+        .invoke_handler(tauri::generate_handler![run_bank_sync, run_export, get_uncategorized_count, get_suggestions, apply_categories, launch_dashboard, get_weekly_brief, load_ai_config, save_ai_config, load_env_config, save_env_config])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app_handle, event| {

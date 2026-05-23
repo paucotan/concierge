@@ -7,7 +7,7 @@ const { q, runQuery } = require('@actual-app/api');
 const { callAI, loadConfig } = require('./ai-provider');
 
 const PORT = 5008;
-const CACHE_DIR = path.join(__dirname, '.actual-cache');
+const CACHE_DIR = process.env.BUDGET_CACHE_DIR || path.join(process.cwd(), '.actual-cache');
 
 // Suppress @actual-app/api debug output
 const _origWrite = process.stdout.write.bind(process.stdout);
@@ -234,7 +234,7 @@ app.post('/api/advisor', (req, res) => {
       encoding: 'utf8',
       timeout: 65000,
       maxBuffer: 2 * 1024 * 1024,
-      env: { ...process.env, HOME: process.env.HOME || require('os').homedir() },
+      env: { ...process.env, BUDGET_CACHE_DIR: process.env.BUDGET_CACHE_DIR || CACHE_DIR, HOME: process.env.HOME || require('os').homedir() },
       cwd: __dirname,
     }
   );
@@ -253,7 +253,7 @@ app.get('/api/advisor-brief', (req, res) => {
   const briefResult = spawnSync(
     process.execPath,
     [path.join(__dirname, 'weekly-brief.js')],
-    { encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024, env: { ...process.env, HOME: process.env.HOME || require('os').homedir() }, cwd: __dirname }
+    { encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024, env: { ...process.env, BUDGET_CACHE_DIR: process.env.BUDGET_CACHE_DIR || CACHE_DIR, HOME: process.env.HOME || require('os').homedir() }, cwd: __dirname }
   );
   if (briefResult.error || briefResult.status !== 0) {
     return res.status(500).json({ error: 'Brief computation failed' });

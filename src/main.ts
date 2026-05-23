@@ -552,6 +552,13 @@ interface AIConfig {
   ollama: { model: string; baseUrl: string };
 }
 
+interface EnvConfig {
+  actual_url: string;
+  actual_password: string;
+  actual_sync_id: string;
+  gdrive_folder_id: string;
+}
+
 function toggleOllamaFields(show: boolean) {
   const fields = document.getElementById('settings-ollama-fields')!;
   if (show) {
@@ -565,12 +572,22 @@ function toggleOllamaFields(show: boolean) {
 }
 
 async function initSettingsPanel() {
-  const raw = await invoke<string>('load_ai_config');
-  const config: AIConfig = JSON.parse(raw);
-  (document.getElementById('settings-provider') as HTMLSelectElement).value = config.provider;
-  (document.getElementById('settings-ollama-model') as HTMLInputElement).value = config.ollama?.model ?? 'gemma4:e4b';
-  (document.getElementById('settings-ollama-url') as HTMLInputElement).value = config.ollama?.baseUrl ?? 'http://localhost:11434';
-  toggleOllamaFields(config.provider === 'ollama');
+  const rawAI = await invoke<string>('load_ai_config');
+  const aiConfig: AIConfig = JSON.parse(rawAI);
+  (document.getElementById('settings-provider') as HTMLSelectElement).value = aiConfig.provider;
+  (document.getElementById('settings-ollama-model') as HTMLInputElement).value = aiConfig.ollama?.model ?? 'gemma4:e4b';
+  (document.getElementById('settings-ollama-url') as HTMLInputElement).value = aiConfig.ollama?.baseUrl ?? 'http://localhost:11434';
+  toggleOllamaFields(aiConfig.provider === 'ollama');
+
+  try {
+    const envConfig = await invoke<EnvConfig>('load_env_config');
+    (document.getElementById('settings-actual-url') as HTMLInputElement).value = envConfig.actual_url ?? 'http://localhost:5007';
+    (document.getElementById('settings-actual-password') as HTMLInputElement).value = envConfig.actual_password ?? '';
+    (document.getElementById('settings-actual-sync-id') as HTMLInputElement).value = envConfig.actual_sync_id ?? '';
+    (document.getElementById('settings-gdrive-id') as HTMLInputElement).value = envConfig.gdrive_folder_id ?? '';
+  } catch (err) {
+    console.error('Failed to load env config', err);
+  }
 }
 
 document.getElementById('btn-settings-toggle')?.addEventListener('click', async () => {
@@ -597,10 +614,22 @@ document.getElementById('btn-settings-save')?.addEventListener('click', async ()
   const provider = (document.getElementById('settings-provider') as HTMLSelectElement).value as 'claude' | 'ollama';
   const model = (document.getElementById('settings-ollama-model') as HTMLInputElement).value.trim() || 'gemma4:e4b';
   const baseUrl = (document.getElementById('settings-ollama-url') as HTMLInputElement).value.trim() || 'http://localhost:11434';
-  const config: AIConfig = { provider, ollama: { model, baseUrl } };
+  const aiConfig: AIConfig = { provider, ollama: { model, baseUrl } };
+
+  const actualUrl = (document.getElementById('settings-actual-url') as HTMLInputElement).value.trim() || 'http://localhost:5007';
+  const actualPassword = (document.getElementById('settings-actual-password') as HTMLInputElement).value.trim();
+  const actualSyncId = (document.getElementById('settings-actual-sync-id') as HTMLInputElement).value.trim();
+  const gdriveFolderId = (document.getElementById('settings-gdrive-id') as HTMLInputElement).value.trim();
+
   const statusEl = document.getElementById('settings-status')!;
   try {
-    await invoke('save_ai_config', { json: JSON.stringify(config) });
+    await invoke('save_ai_config', { json: JSON.stringify(aiConfig) });
+    await invoke('save_env_config', {
+      actualUrl,
+      actualPassword,
+      actualSyncId,
+      gdriveFolderId,
+    });
     statusEl.textContent = 'Saved.';
     statusEl.className = 'text-[9px] text-green-400/50 text-center min-h-[12px]';
     setTimeout(() => { statusEl.textContent = ''; }, 2000);
