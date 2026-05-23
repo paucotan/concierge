@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Budget Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: '#111111',
+            card: '#1a1a1a',
+            border: 'rgba(255,255,255,0.08)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: #111111; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+    .fade-in { animation: fadeIn 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    select, button { cursor: pointer; }
+    table th { position: sticky; top: 0; z-index: 1; background: #111111; }
+    .advisor-msg ul { list-style: disc; padding-left: 1.1rem; }
+    .advisor-msg li { margin-bottom: 0.4rem; }
+    .advisor-msg strong { color: rgba(255,255,255,0.8); }
+    .advisor-msg p { margin-bottom: 0.5rem; }
+    .advisor-msg h2, .advisor-msg h3 { color: rgba(255,255,255,0.4); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; margin-top: 0.75rem; }
+    /* Chart container: shorter on mobile */
+    .chart-container { height: 200px; }
+    @media (min-width: 768px) { .chart-container { height: 260px; } }
+    /* Advisor sidebar: hidden on mobile, flex on desktop */
+    #advisor-sidebar { display: none; flex-direction: column; }
+    @media (min-width: 768px) { #advisor-sidebar { display: flex; } }
+  </style>
+</head>
+<body class="text-white/80 font-sans min-h-screen">
+
+  <div class="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
+
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8 fade-in">
+      <h1 class="text-2xl font-light tracking-wide text-white/90">Budget Dashboard</h1>
+      <div class="flex items-center gap-2 flex-wrap">
+        <select id="month-select" class="bg-card border border-border text-white/70 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-white/20 w-full sm:w-auto">
+          <option value="">Loading…</option>
+        </select>
+        <button id="btn-compare" class="text-sm px-3 py-2 rounded-lg bg-card border border-border text-white/40 hover:text-white/70 hover:border-white/20 transition-all">
+          Compare
+        </button>
+        <a id="btn-export" href="#" class="text-sm px-3 py-2 rounded-lg bg-card border border-border text-white/40 hover:text-white/70 hover:border-white/20 transition-all">
+          Export CSV
+        </a>
+        <a id="btn-actual" href="#" target="_blank" class="text-sm px-3 py-2 rounded-lg bg-card border border-border text-white/40 hover:text-white/70 hover:border-white/20 transition-all hidden">
+          Actual →
+        </a>
+      </div>
+    </div>
+
+    <!-- Active filter bar -->
+    <div id="filter-bar" class="hidden mb-6 fade-in">
+      <div class="flex items-center gap-2 text-sm flex-wrap">
+        <span class="text-white/40">Filtered by:</span>
+        <span id="filter-label" class="px-2 py-1 rounded bg-white/10 text-white/70"></span>
+        <button id="btn-clear-filter" class="text-white/30 hover:text-white/60 transition-colors text-xs ml-1">✕ Clear</button>
+        <button id="btn-all-time" class="hidden text-indigo-400/50 hover:text-indigo-400 transition-colors text-xs ml-2">all time →</button>
+      </div>
+    </div>
+
+    <!-- Two-column layout: main + advisor sidebar -->
+    <div class="flex flex-col md:flex-row gap-5 items-start">
+
+      <!-- Main content -->
+      <div class="flex-1 min-w-0 w-full">
+
+        <!-- Summary Cards -->
+        <div id="summary-cards" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 fade-in">
+          <div id="card-income-wrap" class="rounded-xl bg-card border border-border p-5 cursor-pointer hover:border-green-400/30 hover:bg-white/[0.03] transition-all">
+            <div class="text-white/30 text-xs uppercase tracking-widest mb-2">Income</div>
+            <div id="card-income" class="text-2xl font-light text-green-400/80">—</div>
+          </div>
+          <div id="card-expenses-wrap" class="rounded-xl bg-card border border-border p-5 cursor-pointer hover:border-red-400/30 hover:bg-white/[0.03] transition-all">
+            <div class="text-white/30 text-xs uppercase tracking-widest mb-2">Expenses</div>
+            <div id="card-expenses" class="text-2xl font-light text-red-400/80">—</div>
+          </div>
+          <div id="card-net-wrap" class="rounded-xl bg-card border border-border p-5 cursor-pointer hover:border-white/20 hover:bg-white/[0.03] transition-all">
+            <div class="text-white/30 text-xs uppercase tracking-widest mb-2">Net</div>
+            <div id="card-net" class="text-2xl font-light text-white/70">—</div>
+          </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div id="charts-row" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 fade-in">
+          <div class="rounded-xl bg-card border border-border p-5">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-white/30 text-xs uppercase tracking-widest">Spending by Category</div>
+              <button id="btn-toggle-cat-chart" class="text-white/20 hover:text-white/50 text-xs transition-colors">Bar</button>
+            </div>
+            <div class="relative chart-container">
+              <canvas id="chart-categories"></canvas>
+            </div>
+          </div>
+          <div class="rounded-xl bg-card border border-border p-5">
+            <div class="text-white/30 text-xs uppercase tracking-widest mb-4">Top Payees</div>
+            <div class="relative chart-container">
+              <canvas id="chart-payees"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Spending Trend -->
+        <div class="mb-6 fade-in">
+          <div class="rounded-xl bg-card border border-border p-5">
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <div class="text-white/30 text-xs uppercase tracking-widest">Spending Trend</div>
+              <div class="flex items-center gap-3">
+                <button id="btn-toggle-trend" class="text-white/20 hover:text-white/50 text-xs transition-colors">Stacked</button>
+                <select id="trend-months-select" class="bg-surface border border-border text-white/40 text-xs rounded-lg px-2 py-1 focus:outline-none">
+                  <option value="3">3 months</option>
+                  <option value="6">6 months</option>
+                  <option value="12" selected>12 months</option>
+                </select>
+              </div>
+            </div>
+            <div class="relative" style="height: 200px;">
+              <canvas id="chart-trend"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Compare Panel (hidden by default) -->
+        <div id="compare-panel" class="hidden mb-6 fade-in">
+          <div class="rounded-xl bg-card border border-border p-5">
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <div class="text-white/30 text-xs uppercase tracking-widest">Month Comparison</div>
+              <div class="flex items-center gap-2">
+                <select id="compare-month" class="bg-surface border border-border text-white/70 text-sm rounded-lg px-3 py-1.5 focus:outline-none"></select>
+                <button id="btn-close-compare" class="text-white/30 hover:text-white/60 text-xs transition-colors">✕ Close</button>
+              </div>
+            </div>
+            <div id="compare-content" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
+          </div>
+        </div>
+
+        <!-- Transaction Table -->
+        <div class="rounded-xl bg-card border border-border p-5 fade-in">
+          <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div class="text-white/30 text-xs uppercase tracking-widest">
+              Transactions <span id="txn-count" class="text-white/20"></span>
+            </div>
+            <input id="search-input" type="text" placeholder="Search…"
+              class="bg-surface border border-border text-white/60 text-sm rounded-lg px-3 py-1.5 w-full sm:w-48 focus:outline-none focus:border-white/20 placeholder:text-white/20">
+          </div>
+          <div class="overflow-x-auto" style="max-height: 500px;">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-white/30 text-xs uppercase tracking-wider bg-card">
+                  <th class="text-left py-2 px-3 cursor-pointer hover:text-white/50 whitespace-nowrap" data-sort="date">Date</th>
+                  <th class="text-left py-2 px-3 cursor-pointer hover:text-white/50" data-sort="payee">Payee</th>
+                  <th class="text-left py-2 px-3 cursor-pointer hover:text-white/50 hidden sm:table-cell" data-sort="category">Category</th>
+                  <th class="text-right py-2 px-3 cursor-pointer hover:text-white/50 whitespace-nowrap" data-sort="amount">Amount</th>
+                  <th class="text-left py-2 px-3 cursor-pointer hover:text-white/50 hidden sm:table-cell" data-sort="account">Account</th>
+                </tr>
+              </thead>
+              <tbody id="txn-body" class="divide-y divide-white/5"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-6 text-center text-white/15 text-xs">Concierge Budget Dashboard</div>
+
+      </div><!-- /main content -->
+
+      <!-- AI Advisor Sidebar -->
+      <div id="advisor-sidebar" class="flex-shrink-0 md:sticky md:top-6 rounded-xl bg-card border border-border overflow-hidden transition-all duration-200 w-full md:w-80 md:h-[calc(100vh-3rem)]">
+
+        <!-- Sidebar header -->
+        <div class="px-4 py-3 border-b border-white/[0.06] flex-shrink-0 flex items-center justify-between">
+          <div id="advisor-title" class="text-white/30 text-xs uppercase tracking-widest">AI Advisor</div>
+          <button id="btn-collapse-advisor" class="text-white/20 hover:text-white/50 transition-colors text-xs leading-none" title="Collapse">‹</button>
+        </div>
+
+        <!-- Messages area -->
+        <div id="advisor-messages" class="flex-1 overflow-y-auto p-4 space-y-3" style="min-height: 200px;">
+          <p id="advisor-placeholder" class="text-white/15 text-xs text-center pt-6 leading-relaxed">
+            Ask anything about<br>your finances
+          </p>
+        </div>
+
+        <!-- Input area -->
+        <div id="advisor-input-area" class="p-3 border-t border-white/[0.06] flex-shrink-0">
+          <textarea id="advisor-input" rows="2"
+            placeholder="Ask anything…"
+            class="w-full bg-surface border border-border text-white/60 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-white/20 placeholder:text-white/20 resize-none"></textarea>
+          <button id="btn-get-insights"
+            class="mt-2 w-full text-sm py-2 rounded-lg bg-white/[0.04] border border-border text-white/40 hover:text-white/70 hover:border-white/20 transition-all">
+            Get Insights
+          </button>
+        </div>
+
+      </div><!-- /advisor sidebar -->
+
+    </div><!-- /two-column layout -->
+
+  </div>
+
+  <!-- Payee Detail Panel -->
+  <div id="payee-panel" class="hidden fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-start justify-center sm:pt-16">
+    <div class="bg-[#1a1a1a] sm:rounded-xl border border-white/10 w-full sm:max-w-2xl sm:mx-4 flex flex-col" style="max-height: 100vh;">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-white/5 flex-shrink-0">
+        <div>
+          <h2 id="payee-panel-title" class="text-white/80 font-medium"></h2>
+          <div id="payee-panel-total" class="text-white/30 text-xs mt-0.5"></div>
+        </div>
+        <div class="flex items-center gap-4">
+          <a id="payee-panel-actual-link" href="#" target="_blank" class="text-indigo-400/60 hover:text-indigo-400 text-xs transition-colors hidden sm:inline">Open in Actual →</a>
+          <button id="payee-panel-close" class="text-white/30 hover:text-white/70 transition-colors text-base leading-none">✕</button>
+        </div>
+      </div>
+      <div class="px-5 py-4 border-b border-white/5 flex-shrink-0" style="height: 160px;">
+        <canvas id="chart-payee-history"></canvas>
+      </div>
+      <div class="overflow-y-auto flex-1">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-white/20 text-xs uppercase tracking-wider">
+              <th class="text-left py-2 px-5" style="background:#1a1a1a;">Date</th>
+              <th class="text-left py-2 px-5" style="background:#1a1a1a;">Category</th>
+              <th class="text-right py-2 px-5" style="background:#1a1a1a;">Amount</th>
+              <th class="text-left py-2 px-5 hidden sm:table-cell" style="background:#1a1a1a;">Account</th>
+            </tr>
+          </thead>
+          <tbody id="payee-panel-txns" class="divide-y divide-white/5"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating AI button (mobile only) -->
+  <button id="btn-advisor-mobile" class="md:hidden fixed bottom-5 right-5 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full bg-indigo-500/80 hover:bg-indigo-500 text-white text-sm shadow-lg transition-all">
+    AI ›
+  </button>
+
+  <script src="app.js"></script>
+</body>
+</html>
