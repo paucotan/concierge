@@ -42,6 +42,10 @@ fn get_budgeting_dir(app: &tauri::AppHandle) -> PathBuf {
         if bundled.exists() {
             return bundled;
         }
+        let bundled_up = res_dir.join("_up_").join("budgeting");
+        if bundled_up.exists() {
+            return bundled_up;
+        }
     }
 
     if let Ok(home) = std::env::var("HOME") {
@@ -85,6 +89,9 @@ async fn run_bank_sync(app: tauri::AppHandle) -> Result<String, String> {
     let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("sync-only.js");
+    if !script_path.exists() {
+        return Err(format!("Sync script not found at: {}. Please verify the installation.", script_path.display()));
+    }
     
     let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
     if !working_dir.exists() {
@@ -112,6 +119,9 @@ async fn get_suggestions(app: tauri::AppHandle) -> Result<String, String> {
     let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("categorize.js");
+    if !script_path.exists() {
+        return Err(format!("Suggestions script not found at: {}. Please verify the installation.", script_path.display()));
+    }
     
     let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
     if !working_dir.exists() {
@@ -140,6 +150,9 @@ async fn apply_categories(app: tauri::AppHandle, json: String) -> Result<String,
     let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("apply-categories.js");
+    if !script_path.exists() {
+        return Err(format!("Apply categories script not found at: {}. Please verify the installation.", script_path.display()));
+    }
     
     let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
     if !working_dir.exists() {
@@ -176,6 +189,9 @@ async fn get_uncategorized_count(app: tauri::AppHandle) -> Result<u32, String> {
     let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("count-uncategorized.js");
+    if !script_path.exists() {
+        return Err(format!("Count script not found at: {}. Please verify the installation.", script_path.display()));
+    }
     
     let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
     if !working_dir.exists() {
@@ -200,6 +216,9 @@ async fn run_export(app: tauri::AppHandle) -> Result<String, String> {
     let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("export.js");
+    if !script_path.exists() {
+        return Err(format!("Export script not found at: {}. Please verify the installation.", script_path.display()));
+    }
     
     let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
     if !working_dir.exists() {
@@ -227,6 +246,9 @@ async fn get_weekly_brief(app: tauri::AppHandle) -> Result<String, String> {
     let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("weekly-brief.js");
+    if !script_path.exists() {
+        return Err(format!("Weekly brief script not found at: {}. Please verify the installation.", script_path.display()));
+    }
     
     let working_dir = PathBuf::from(get_home_dir()).join(".concierge");
     if !working_dir.exists() {
@@ -254,6 +276,9 @@ async fn launch_dashboard(app: tauri::AppHandle) -> Result<String, String> {
     let budgeting_dir = get_budgeting_dir(&app);
     let node_bin = find_node();
     let script_path = budgeting_dir.join("scripts").join("dashboard-server.js");
+    if !script_path.exists() {
+        return Err(format!("Dashboard script not found at: {}. Please verify the installation.", script_path.display()));
+    }
     
     // Kill any existing dashboard server on port 5008
     let _ = std::process::Command::new("lsof")
