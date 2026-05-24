@@ -658,18 +658,153 @@ function createActionCard(action) {
   card.innerHTML = `
     <div class="text-[10px] text-indigo-400 font-semibold tracking-wide uppercase">Proposed Action</div>
     <div class="text-white/80 text-[11px] font-medium leading-relaxed">${esc(desc)}</div>
-    <div class="text-white/35 text-[9px] leading-tight">Please review and confirm to apply this change to your budget.</div>
+    
+    <!-- Preview Area -->
+    <div id="preview-area" class="text-[10px] text-white/40 pt-1.5 space-y-1.5">
+      <div id="preview-loader" class="flex items-center gap-1.5 text-white/30">
+        <span class="w-1.5 h-1.5 rounded-full bg-white/20 animate-pulse"></span>
+        <span>Calculating affected transactions...</span>
+      </div>
+      <div id="preview-details" class="hidden space-y-1.5">
+        <div class="flex items-center justify-between">
+          <span id="preview-count" class="font-medium text-white/50"></span>
+          <button id="btn-toggle-preview" class="text-indigo-400 hover:text-indigo-300 font-medium transition-colors hidden">Show details</button>
+        </div>
+        <div id="preview-list" class="mt-1.5 hidden border border-white/[0.04] bg-black/20 p-2 rounded-lg max-h-32 overflow-y-auto space-y-1 divide-y divide-white/[0.03]"></div>
+        <div id="preview-warning" class="text-yellow-400/80 font-medium hidden"></div>
+        <div id="preview-checkbox-wrap" class="hidden"></div>
+      </div>
+    </div>
+
     <div class="flex gap-2 mt-2" id="action-buttons">
       <button id="btn-confirm-action" class="flex-1 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md transition-all">Confirm</button>
       <button id="btn-cancel-action" class="flex-1 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 text-xs font-medium transition-all">Cancel</button>
     </div>
     <div id="action-status" class="hidden text-xs font-medium pt-1"></div>
+    <div id="undo-area" class="hidden pt-1"></div>
   `;
 
+  const previewLoader = card.querySelector('#preview-loader');
+  const previewDetails = card.querySelector('#preview-details');
+  const previewCount = card.querySelector('#preview-count');
+  const btnTogglePreview = card.querySelector('#btn-toggle-preview');
+  const previewList = card.querySelector('#preview-list');
+  const previewWarning = card.querySelector('#preview-warning');
+  const previewCheckboxWrap = card.querySelector('#preview-checkbox-wrap');
+  
   const btnConfirm = card.querySelector('#btn-confirm-action');
   const btnCancel = card.querySelector('#btn-cancel-action');
   const btnArea = card.querySelector('#action-buttons');
   const statusDiv = card.querySelector('#action-status');
+  const undoArea = card.querySelector('#undo-area');
+
+  // Disable confirm until preview loads
+  btnConfirm.disabled = true;
+  btnConfirm.classList.add('opacity-50', 'cursor-not-allowed');
+
+  // Fetch preview asynchronously
+  fetch('/api/advisor/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  })
+    .then(res => res.json())
+    .then(data => {
+      previewLoader.classList.add('hidden');
+      previewDetails.classList.remove('hidden');
+
+      if (!data.success) {
+        previewCount.textContent = 'Failed to load preview details.';
+        btnConfirm.disabled = false;
+        btnConfirm.classList.remove('opacity-50', 'cursor-not-allowed');
+        return;
+      }
+
+      const count = data.count;
+      
+      // Update match count display
+      previewCount.textContent = count === 1 ? 'Affects 1 transaction' : `Affects ${count} transactions`;
+
+      if (count === 0) {
+        // 0 matches: disable confirm
+        previewCount.className = 'text-red-400/80 font-medium';
+        previewCount.textContent = 'No matching transactions found.';
+        btnConfirm.disabled = true;
+        btnConfirm.classList.add('opacity-50', 'cursor-not-allowed');
+        return;
+      }
+
+      // Re-enable confirm by default (unless bulk limit applies)
+      btnConfirm.disabled = false;
+      btnConfirm.classList.remove('opacity-50', 'cursor-not-allowed');
+
+      // Populate preview list if transactions exist
+      if (data.transactions && data.transactions.length > 0) {
+        btnTogglePreview.classList.remove('hidden');
+        previewList.innerHTML = data.transactions.map(t => `
+          <div class="pt-1 first:pt-0 text-[10px] flex items-center justify-between gap-1.5 font-mono text-white/45">
+            <span class="text-white/20 whitespace-nowrap">${t.date}</span>
+            <span class="truncate max-w-[100px] text-white/60">${esc(t.payee)}</span>
+            <span class="truncate max-w-[80px] text-white/30">${esc(t.category || 'Uncategorized')}</span>
+            <span class="${t.amount < 0 ? 'text-white/40' : 'text-green-500/50'} ml-auto whitespace-nowrap">${fmt(t.amount)}</span>
+          </div>
+        `).join('');
+
+        btnTogglePreview.addEventListener('click', () => {
+          const isHidden = previewList.classList.contains('hidden');
+          if (isHidden) {
+            previewList.classList.remove('hidden');
+            btnTogglePreview.textContent = 'Hide details';
+          } else {
+            previewList.classList.add('hidden');
+            btnTogglePreview.textContent = 'Show details';
+          }
+        });
+      }
+
+      // Bulk actions styling & controls
+      if (count > 10) {
+        // Warning background/border
+        card.classList.remove('bg-indigo-500/10', 'border-indigo-500/25');
+        card.classList.add('bg-yellow-500/5', 'border-yellow-500/25');
+        previewWarning.classList.remove('hidden');
+        previewWarning.textContent = count > 50 
+          ? `⚠️ Critical: Very large change affecting ${count} transactions!`
+          : `⚠️ Warning: Bulk change affecting ${count} transactions.`;
+      }
+
+      if (count > 50) {
+        // Require checkbox confirmation
+        btnConfirm.disabled = true;
+        btnConfirm.classList.add('opacity-50', 'cursor-not-allowed');
+
+        previewCheckboxWrap.classList.remove('hidden');
+        previewCheckboxWrap.innerHTML = `
+          <label class="flex items-start gap-1.5 mt-2 cursor-pointer select-none">
+            <input type="checkbox" id="chk-bulk-confirm" class="mt-0.5 rounded border-white/10 bg-black/40 text-indigo-500 focus:ring-0">
+            <span class="text-[9px] text-white/45 leading-normal">I understand this will bulk-update ${count} transactions in the database.</span>
+          </label>
+        `;
+
+        const checkbox = previewCheckboxWrap.querySelector('#chk-bulk-confirm');
+        checkbox.addEventListener('change', (e) => {
+          if (e.target.checked) {
+            btnConfirm.disabled = false;
+            btnConfirm.classList.remove('opacity-50', 'cursor-not-allowed');
+          } else {
+            btnConfirm.disabled = true;
+            btnConfirm.classList.add('opacity-50', 'cursor-not-allowed');
+          }
+        });
+      }
+    })
+    .catch(err => {
+      previewLoader.classList.add('hidden');
+      previewDetails.classList.remove('hidden');
+      previewCount.textContent = 'Could not fetch transaction preview.';
+      btnConfirm.disabled = false;
+      btnConfirm.classList.remove('opacity-50', 'cursor-not-allowed');
+    });
 
   btnConfirm.addEventListener('click', async () => {
     btnConfirm.disabled = true;
@@ -688,9 +823,57 @@ function createActionCard(action) {
       }
       const data = await res.json();
       btnArea.remove();
-      statusDiv.className = 'text-green-400/80 text-xs font-medium pt-1 fade-in';
-      statusDiv.textContent = `✓ Applied: ${data.message || 'Success'}`;
+      
+      // Update warning/checkbox style back to neutral
+      card.classList.remove('bg-yellow-500/5', 'border-yellow-500/25');
+      card.classList.add('bg-green-500/5', 'border-green-500/25');
+
+      statusDiv.className = 'text-green-400/80 text-[11px] font-medium pt-1 fade-in';
+      statusDiv.innerHTML = `✓ Applied: ${data.message || 'Success'}`;
+      if (data.backupFile) {
+        statusDiv.innerHTML += `<div class="text-white/30 text-[9px] mt-0.5">Pre-action backup saved: ${data.backupFile}</div>`;
+      }
       statusDiv.classList.remove('hidden');
+
+      // Add Undo UI
+      if (data.backupFile) {
+        undoArea.classList.remove('hidden');
+        undoArea.innerHTML = `
+          <button id="btn-undo-action" class="mt-2 w-full py-1.5 rounded-lg bg-red-950/20 hover:bg-red-950/50 text-red-400 border border-red-500/20 text-[10px] font-semibold transition-all">
+            Undo Database Modifications
+          </button>
+        `;
+        const btnUndo = undoArea.querySelector('#btn-undo-action');
+        btnUndo.addEventListener('click', async () => {
+          btnUndo.disabled = true;
+          btnUndo.textContent = 'Restoring database...';
+          try {
+            const undoRes = await fetch('/api/advisor/undo', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ backupFile: data.backupFile }),
+            });
+            if (!undoRes.ok) {
+              const e = await undoRes.json();
+              throw new Error(e.error || undoRes.statusText);
+            }
+            
+            // Switch card style back to neutral/disabled
+            card.classList.remove('bg-green-500/5', 'border-green-500/25');
+            card.classList.add('bg-white/[0.02]', 'border-white/5');
+            statusDiv.className = 'text-white/30 text-[11px] font-medium pt-1 fade-in';
+            statusDiv.textContent = `✗ Reverted: Database restored successfully.`;
+            undoArea.remove();
+            
+            // Reload dashboard to update everything!
+            loadDashboard();
+          } catch (undoErr) {
+            btnUndo.disabled = false;
+            btnUndo.textContent = 'Undo Database Modifications';
+            alert(`Undo failed: ${undoErr.message}`);
+          }
+        });
+      }
 
       // Refresh the dashboard automatically in real-time
       loadDashboard();
@@ -699,7 +882,7 @@ function createActionCard(action) {
       btnConfirm.disabled = false;
       btnCancel.disabled = false;
       btnConfirm.textContent = 'Confirm';
-      statusDiv.className = 'text-red-400/80 text-xs font-medium pt-1 fade-in';
+      statusDiv.className = 'text-red-400/80 text-xs font-medium pt-1';
       statusDiv.textContent = `✗ Failed: ${err.message}`;
       statusDiv.classList.remove('hidden');
     }
@@ -968,6 +1151,21 @@ function renderTrendChart(data) {
       interaction: {
         mode: 'index',
         intersect: false,
+      },
+      onClick: (e, elements) => {
+        console.log('trendChart onClick triggered. Elements:', elements);
+        if (elements.length) {
+          const index = elements[0].index;
+          const clickedMonth = data.months[index];
+          console.log('Switching to month:', clickedMonth);
+          if (clickedMonth && clickedMonth !== currentMonth) {
+            currentMonth = clickedMonth;
+            const selectEl = document.getElementById('month-select');
+            if (selectEl) selectEl.value = clickedMonth;
+            updateExportLink();
+            loadDashboard();
+          }
+        }
       },
       plugins: {
         legend: trendStacked
