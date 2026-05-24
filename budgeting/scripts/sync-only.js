@@ -19,6 +19,7 @@ async function syncOnly() {
 
   await api.downloadBudget(process.env.ACTUAL_SYNC_ID);
   await api.runBankSync();
+  await api.sync();
   await api.shutdown();
 
   process.stdout.write = _origWrite;
