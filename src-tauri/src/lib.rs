@@ -37,17 +37,6 @@ fn get_budgeting_dir(app: &tauri::AppHandle) -> PathBuf {
         }
     }
 
-    if let Ok(res_dir) = app.path().resource_dir() {
-        let bundled = res_dir.join("budgeting");
-        if bundled.exists() {
-            return bundled;
-        }
-        let bundled_up = res_dir.join("_up_").join("budgeting");
-        if bundled_up.exists() {
-            return bundled_up;
-        }
-    }
-
     if let Ok(home) = std::env::var("HOME") {
         let config_path = std::path::Path::new(&home).join(".concierge-config.json");
         if config_path.exists() {
@@ -61,6 +50,17 @@ fn get_budgeting_dir(app: &tauri::AppHandle) -> PathBuf {
                     }
                 }
             }
+        }
+    }
+
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let bundled = res_dir.join("budgeting");
+        if bundled.exists() {
+            return bundled;
+        }
+        let bundled_up = res_dir.join("_up_").join("budgeting");
+        if bundled_up.exists() {
+            return bundled_up;
         }
     }
 
