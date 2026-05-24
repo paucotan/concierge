@@ -77,6 +77,12 @@ async function init() {
   });
   document.getElementById('btn-collapse-advisor').addEventListener('click', toggleAdvisor);
   document.getElementById('btn-advisor-mobile').addEventListener('click', showAdvisorMobile);
+  document.getElementById('btn-refresh-brief')?.addEventListener('click', () => {
+    localStorage.removeItem(BRIEF_CACHE_KEY);
+    const messages = document.getElementById('advisor-messages');
+    messages.innerHTML = '';
+    loadAdvisorBrief();
+  });
 
   // Payee panel close
   document.getElementById('payee-panel-close').addEventListener('click', closePayeePanel);
