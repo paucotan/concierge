@@ -15,6 +15,25 @@ process.stdout.write = process.stderr.write.bind(process.stderr);
 
 let accountMap, payeeMap, categoryMap, transferPayees;
 
+function updateEnvFile(envPath, syncId) {
+  try {
+    if (fs.existsSync(envPath)) {
+      let content = fs.readFileSync(envPath, 'utf8');
+      if (content.includes('ACTUAL_SYNC_ID=')) {
+        content = content.replace(/ACTUAL_SYNC_ID=.*/, `ACTUAL_SYNC_ID=${syncId}`);
+      } else {
+        content += `\nACTUAL_SYNC_ID=${syncId}\n`;
+      }
+      fs.writeFileSync(envPath, content, 'utf8');
+      console.log(`Automatically updated env file at ${envPath} with new sync ID.`);
+      return true;
+    }
+  } catch (err) {
+    console.error(`Failed to update env file at ${envPath}:`, err.message);
+  }
+  return false;
+}
+
 async function initActual() {
   if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR);
   await api.init({
@@ -62,16 +81,11 @@ async function initActual() {
             
             // Update the .env file in scripts
             const envPath = path.join(__dirname, '.env');
-            if (fs.existsSync(envPath)) {
-              let content = fs.readFileSync(envPath, 'utf8');
-              if (content.includes('ACTUAL_SYNC_ID=')) {
-                content = content.replace(/ACTUAL_SYNC_ID=.*/, `ACTUAL_SYNC_ID=${syncId}`);
-              } else {
-                content += `\nACTUAL_SYNC_ID=${syncId}\n`;
-              }
-              fs.writeFileSync(envPath, content, 'utf8');
-              console.log(`Automatically updated scripts/.env with new sync ID.`);
-            }
+            updateEnvFile(envPath, syncId);
+
+            // Update the .env file in Concierge directory
+            const conciergeEnvPath = path.join(path.dirname(CACHE_DIR), '.env');
+            updateEnvFile(conciergeEnvPath, syncId);
           }
         }
       }
@@ -447,7 +461,7 @@ function getDatabaseDir() {
   return null;
 }
 
-// Helper: make automated database backup before modifications
+// Helper: make automated database backup before modifications (as a secondary safety precaution)
 function makeBackup() {
   const dbDir = getDatabaseDir();
   if (!dbDir) {
@@ -482,28 +496,71 @@ function makeBackup() {
   return backupFilename;
 }
 
-// Helper: restore database backup
-async function restoreBackup(backupFilename) {
+// Helper: create an undo log for the action
+function makeUndoLog(undoData) {
   const dbDir = getDatabaseDir();
-  if (!dbDir) throw new Error('Database directory not found for sync ID');
-  const backupDir = path.join(dbDir, 'advisor_backups');
-  const backupPath = path.join(backupDir, backupFilename);
-  if (!fs.existsSync(backupPath)) {
-    throw new Error(`Backup file does not exist: ${backupPath}`);
+  if (!dbDir) {
+    console.warn('Could not find budget directory matching sync ID');
+    return null;
   }
 
-  const dbPath = path.join(dbDir, 'db.sqlite');
-  
-  await api.shutdown();
-  fs.copyFileSync(backupPath, dbPath);
+  const undoDir = path.join(dbDir, 'advisor_undo_logs');
+  if (!fs.existsSync(undoDir)) {
+    fs.mkdirSync(undoDir, { recursive: true });
+  }
 
-  await api.init({
-    dataDir: CACHE_DIR,
-    serverURL: process.env.ACTUAL_SERVER_URL,
-    password: process.env.ACTUAL_PASSWORD,
-  });
-  await api.downloadBudget(process.env.ACTUAL_SYNC_ID);
-  await buildLookups();
+  const now = new Date();
+  const dateStr = now.getFullYear() +
+    String(now.getMonth() + 1).padStart(2, '0') +
+    String(now.getDate()).padStart(2, '0') +
+    '-' +
+    String(now.getHours()).padStart(2, '0') +
+    String(now.getMinutes()).padStart(2, '0') +
+    String(now.getSeconds()).padStart(2, '0');
+  
+  const undoFilename = `undo-${dateStr}.json`;
+  const undoPath = path.join(undoDir, undoFilename);
+  
+  fs.writeFileSync(undoPath, JSON.stringify(undoData, null, 2), 'utf8');
+  console.log(`Undo log created at: ${undoPath}`);
+  return undoFilename;
+}
+
+// Helper: apply programmatic undo
+async function applyUndo(undoFilename) {
+  const dbDir = getDatabaseDir();
+  if (!dbDir) throw new Error('Database directory not found for sync ID');
+  const undoDir = path.join(dbDir, 'advisor_undo_logs');
+  const undoPath = path.join(undoDir, undoFilename);
+  if (!fs.existsSync(undoPath)) {
+    throw new Error(`Undo log file does not exist: ${undoPath}`);
+  }
+
+  const undoData = JSON.parse(fs.readFileSync(undoPath, 'utf8'));
+
+  if (undoData.command === 'update_transactions') {
+    console.log(`Undoing update_transactions for ${undoData.transactions.length} transaction(s)...`);
+    for (const t of undoData.transactions) {
+      await api.updateTransaction(t.id, {
+        category: t.category || null,
+        payee: t.payee || null,
+        notes: t.notes || ''
+      });
+    }
+    await api.sync();
+    await buildLookups();
+  } else if (undoData.command === 'create_rule') {
+    console.log(`Undoing create_rule for rule ID: ${undoData.ruleId}...`);
+    await api.deleteRule(undoData.ruleId);
+    await api.sync();
+    await buildLookups();
+  } else {
+    throw new Error(`Unknown command in undo log: ${undoData.command}`);
+  }
+
+  // Delete the undo log file
+  fs.unlinkSync(undoPath);
+  console.log(`Successfully completed undo and deleted log: ${undoFilename}`);
 }
 
 // POST /api/advisor  { month, question, history }
@@ -565,11 +622,11 @@ app.post('/api/advisor/preview', async (req, res) => {
 
 // POST /api/advisor/undo  { backupFile }
 app.post('/api/advisor/undo', async (req, res) => {
-  const { backupFile } = req.body || {};
-  if (!backupFile) return res.status(400).json({ error: 'backupFile is required' });
+  const undoFile = req.body.backupFile || req.body.undoFile;
+  if (!undoFile) return res.status(400).json({ error: 'undoFile is required' });
 
   try {
-    await restoreBackup(backupFile);
+    await applyUndo(undoFile);
     res.json({
       success: true,
       message: 'Database successfully reverted to pre-action state.',
@@ -658,6 +715,18 @@ app.post('/api/advisor/execute', async (req, res) => {
         return res.json({ success: true, updatedCount: 0, message: 'No transactions matched the filters.', backupFile });
       }
 
+      // Capture original state for undo
+      const undoData = {
+        command: 'update_transactions',
+        transactions: matchedTxns.map(t => ({
+          id: t.id,
+          category: t.category || null,
+          payee: t.payee || null,
+          notes: t.notes || ''
+        }))
+      };
+      const undoFile = makeUndoLog(undoData);
+
       // Update matching transactions
       for (const t of matchedTxns) {
         const updates = {};
@@ -674,7 +743,7 @@ app.post('/api/advisor/execute', async (req, res) => {
         success: true,
         updatedCount: matchedTxns.length,
         message: `Successfully updated ${matchedTxns.length} transaction(s).`,
-        backupFile
+        backupFile: undoFile
       });
 
     } else if (action.command === 'create_rule') {
@@ -731,11 +800,17 @@ app.post('/api/advisor/execute', async (req, res) => {
       await api.sync();
       await buildLookups();
 
+      const undoData = {
+        command: 'create_rule',
+        ruleId: createdRule.id
+      };
+      const undoFile = makeUndoLog(undoData);
+
       return res.json({
         success: true,
         ruleId: createdRule.id,
         message: `Successfully created new rule.`,
-        backupFile
+        backupFile: undoFile
       });
 
     } else {

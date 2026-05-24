@@ -24,6 +24,7 @@ async function categorize() {
 
   // Sync bank transactions from SimpleFIN
   await api.runBankSync();
+  await api.sync();
 
   // Fetch categories and payees
   const categories = await api.getCategories();

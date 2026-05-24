@@ -33,6 +33,7 @@ async function applyCategories() {
     }
   }
 
+  await api.sync();
   await api.shutdown();
   process.stdout.write = _origWrite;
   console.log(count);
