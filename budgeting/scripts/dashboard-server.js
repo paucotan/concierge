@@ -22,7 +22,65 @@ async function initActual() {
     serverURL: process.env.ACTUAL_SERVER_URL,
     password: process.env.ACTUAL_PASSWORD,
   });
-  await api.downloadBudget(process.env.ACTUAL_SYNC_ID);
+
+  let syncId = process.env.ACTUAL_SYNC_ID;
+  try {
+    const budgets = await api.getBudgets();
+    const exactMatch = budgets.find(b => b.groupId === syncId);
+    if (!exactMatch) {
+      console.log(`Sync ID ${syncId} not found on server. Attempting dynamic resolution...`);
+      
+      // Look up target budget name dynamically from local cache metadata to protect privacy
+      let targetName = null;
+      try {
+        const files = fs.readdirSync(CACHE_DIR);
+        for (const file of files) {
+          const dirPath = path.join(CACHE_DIR, file);
+          if (fs.statSync(dirPath).isDirectory()) {
+            const metaPath = path.join(dirPath, 'metadata.json');
+            if (fs.existsSync(metaPath)) {
+              const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+              if (meta.budgetName) {
+                targetName = meta.budgetName;
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to read target budget name from cache metadata:', e.message);
+      }
+
+      if (targetName) {
+        const nameMatches = budgets.filter(b => b.name === targetName);
+        if (nameMatches.length > 0) {
+          const newMatch = nameMatches.find(b => b.groupId !== syncId && b.state === 'remote') || nameMatches[0];
+          if (newMatch) {
+            console.log(`Found active sync ID for "${targetName}" on server: ${newMatch.groupId}`);
+            syncId = newMatch.groupId;
+            process.env.ACTUAL_SYNC_ID = syncId;
+            
+            // Update the .env file in scripts
+            const envPath = path.join(__dirname, '.env');
+            if (fs.existsSync(envPath)) {
+              let content = fs.readFileSync(envPath, 'utf8');
+              if (content.includes('ACTUAL_SYNC_ID=')) {
+                content = content.replace(/ACTUAL_SYNC_ID=.*/, `ACTUAL_SYNC_ID=${syncId}`);
+              } else {
+                content += `\nACTUAL_SYNC_ID=${syncId}\n`;
+              }
+              fs.writeFileSync(envPath, content, 'utf8');
+              console.log(`Automatically updated scripts/.env with new sync ID.`);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to dynamically check sync IDs from server:', err.message);
+  }
+
+  await api.downloadBudget(syncId);
   await buildLookups();
 }
 
@@ -241,6 +299,213 @@ async function resolvePayeeUuid(name) {
   return null;
 }
 
+// Helper: match transactions for filter preview
+async function getMatchingTransactionsForFilter(filters) {
+  const { data: allTxns } = await runQuery(
+    q('transactions')
+      .filter({ is_parent: false })
+      .select(['id', 'account', 'date', 'amount', 'payee', 'category', 'notes'])
+  );
+
+  const accounts = await api.getAccounts();
+  const payees = await api.getPayees();
+  const categoriesList = await api.getCategories();
+  
+  const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]));
+  const payeeMap = Object.fromEntries(payees.map(p => [p.id, p]));
+  const catMap = Object.fromEntries(categoriesList.map(c => [c.id, c.name]));
+
+  function resolveTxnPayeeName(t) {
+    if (!t.payee) return '';
+    const p = payeeMap[t.payee];
+    if (!p) return '';
+    return p.transfer_acct ? (accountMap[p.transfer_acct] || p.name) : p.name;
+  }
+
+  let matchedTxns = allTxns;
+
+  if (filters.payee_name) {
+    const matchPayee = filters.payee_name.toLowerCase();
+    matchedTxns = matchedTxns.filter(t => {
+      const payeeName = resolveTxnPayeeName(t).toLowerCase();
+      return payeeName.includes(matchPayee);
+    });
+  }
+  if (filters.category_name) {
+    const matchCat = filters.category_name.toLowerCase();
+    matchedTxns = matchedTxns.filter(t => {
+      const catName = (t.category ? (catMap[t.category] || '') : '').toLowerCase();
+      return catName.includes(matchCat);
+    });
+  }
+  if (filters.startDate) {
+    matchedTxns = matchedTxns.filter(t => t.date >= filters.startDate);
+  }
+  if (filters.endDate) {
+    matchedTxns = matchedTxns.filter(t => t.date < filters.endDate);
+  }
+
+  return matchedTxns.map(t => ({
+    id: t.id,
+    date: t.date,
+    payee: resolveTxnPayeeName(t),
+    category: t.category ? (catMap[t.category] || '') : '',
+    amount: t.amount / 100,
+    account: accountMap[t.account] || '',
+    notes: t.notes || ''
+  }));
+}
+
+// Helper: match transactions for rule preview
+async function getMatchingTransactionsForRule(conditions, conditionsOp = 'and') {
+  const { data: allTxns } = await runQuery(
+    q('transactions')
+      .filter({ is_parent: false })
+      .select(['id', 'account', 'date', 'amount', 'payee', 'category', 'notes'])
+  );
+
+  const accounts = await api.getAccounts();
+  const payees = await api.getPayees();
+  const categoriesList = await api.getCategories();
+  
+  const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.name]));
+  const payeeMap = Object.fromEntries(payees.map(p => [p.id, p]));
+  const catMap = Object.fromEntries(categoriesList.map(c => [c.id, c.name]));
+
+  function resolveTxnPayeeName(t) {
+    if (!t.payee) return '';
+    const p = payeeMap[t.payee];
+    if (!p) return '';
+    return p.transfer_acct ? (accountMap[p.transfer_acct] || p.name) : p.name;
+  }
+
+  const matchesCondition = (t, cond) => {
+    let fieldVal = '';
+    if (cond.field === 'payee') {
+      fieldVal = resolveTxnPayeeName(t);
+    } else if (cond.field === 'category') {
+      fieldVal = t.category ? (catMap[t.category] || '') : '';
+    } else if (cond.field === 'amount') {
+      fieldVal = String(t.amount / 100);
+    } else if (cond.field === 'notes') {
+      fieldVal = t.notes || '';
+    }
+
+    const val = String(cond.value).toLowerCase();
+    const fVal = String(fieldVal).toLowerCase();
+
+    if (cond.op === 'is') {
+      return fVal === val;
+    } else if (cond.op === 'contains') {
+      return fVal.includes(val);
+    }
+    return false;
+  };
+
+  let matched = allTxns.filter(t => {
+    if (conditionsOp === 'or') {
+      return conditions.some(c => matchesCondition(t, c));
+    } else {
+      return conditions.every(c => matchesCondition(t, c));
+    }
+  });
+
+  return matched.map(t => ({
+    id: t.id,
+    date: t.date,
+    payee: resolveTxnPayeeName(t),
+    category: t.category ? (catMap[t.category] || '') : '',
+    amount: t.amount / 100,
+    account: accountMap[t.account] || '',
+    notes: t.notes || ''
+  }));
+}
+
+// Helper: get correct database directory matching ACTUAL_SYNC_ID dynamically
+function getDatabaseDir() {
+  const syncId = process.env.ACTUAL_SYNC_ID;
+  if (!syncId) return null;
+
+  // Scan all subdirectories in CACHE_DIR
+  try {
+    const files = fs.readdirSync(CACHE_DIR);
+    for (const file of files) {
+      const dirPath = path.join(CACHE_DIR, file);
+      if (fs.statSync(dirPath).isDirectory()) {
+        const metaPath = path.join(dirPath, 'metadata.json');
+        if (fs.existsSync(metaPath)) {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+          if (meta.groupId === syncId) {
+            return dirPath;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error scanning cache dir:', e.message);
+  }
+  return null;
+}
+
+// Helper: make automated database backup before modifications
+function makeBackup() {
+  const dbDir = getDatabaseDir();
+  if (!dbDir) {
+    console.warn('Could not find budget directory matching sync ID');
+    return null;
+  }
+  const dbPath = path.join(dbDir, 'db.sqlite');
+  if (!fs.existsSync(dbPath)) {
+    console.warn('db.sqlite does not exist at:', dbPath);
+    return null;
+  }
+
+  const backupDir = path.join(dbDir, 'advisor_backups');
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true });
+  }
+
+  const now = new Date();
+  const dateStr = now.getFullYear() +
+    String(now.getMonth() + 1).padStart(2, '0') +
+    String(now.getDate()).padStart(2, '0') +
+    '-' +
+    String(now.getHours()).padStart(2, '0') +
+    String(now.getMinutes()).padStart(2, '0') +
+    String(now.getSeconds()).padStart(2, '0');
+  
+  const backupFilename = `db-${dateStr}.sqlite`;
+  const backupPath = path.join(backupDir, backupFilename);
+  
+  fs.copyFileSync(dbPath, backupPath);
+  console.log(`Automatic database backup created at: ${backupPath}`);
+  return backupFilename;
+}
+
+// Helper: restore database backup
+async function restoreBackup(backupFilename) {
+  const dbDir = getDatabaseDir();
+  if (!dbDir) throw new Error('Database directory not found for sync ID');
+  const backupDir = path.join(dbDir, 'advisor_backups');
+  const backupPath = path.join(backupDir, backupFilename);
+  if (!fs.existsSync(backupPath)) {
+    throw new Error(`Backup file does not exist: ${backupPath}`);
+  }
+
+  const dbPath = path.join(dbDir, 'db.sqlite');
+  
+  await api.shutdown();
+  fs.copyFileSync(backupPath, dbPath);
+
+  await api.init({
+    dataDir: CACHE_DIR,
+    serverURL: process.env.ACTUAL_SERVER_URL,
+    password: process.env.ACTUAL_PASSWORD,
+  });
+  await api.downloadBudget(process.env.ACTUAL_SYNC_ID);
+  await buildLookups();
+}
+
 // POST /api/advisor  { month, question, history }
 app.post('/api/advisor', (req, res) => {
   const { month, question = '', history = [] } = req.body || {};
@@ -273,10 +538,58 @@ app.post('/api/advisor', (req, res) => {
   }
 });
 
+// POST /api/advisor/preview  { action }
+app.post('/api/advisor/preview', async (req, res) => {
+  const { action } = req.body || {};
+  if (!action) return res.status(400).json({ error: 'action is required' });
+
+  try {
+    let matched = [];
+    if (action.command === 'update_transactions') {
+      matched = await getMatchingTransactionsForFilter(action.filters || {});
+    } else if (action.command === 'create_rule') {
+      matched = await getMatchingTransactionsForRule(action.conditions || [], action.conditionsOp || 'and');
+    } else {
+      return res.status(400).json({ error: `Unknown command "${action.command}"` });
+    }
+
+    res.json({
+      success: true,
+      count: matched.length,
+      transactions: matched.slice(0, 10), // Limit preview data size
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/advisor/undo  { backupFile }
+app.post('/api/advisor/undo', async (req, res) => {
+  const { backupFile } = req.body || {};
+  if (!backupFile) return res.status(400).json({ error: 'backupFile is required' });
+
+  try {
+    await restoreBackup(backupFile);
+    res.json({
+      success: true,
+      message: 'Database successfully reverted to pre-action state.',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/advisor/execute  { action }
 app.post('/api/advisor/execute', async (req, res) => {
   const { action } = req.body || {};
   if (!action) return res.status(400).json({ error: 'action is required' });
+
+  let backupFile = null;
+  try {
+    backupFile = makeBackup();
+  } catch (backupErr) {
+    console.error('Failed to create database backup before execution:', backupErr.message);
+  }
 
   try {
     if (action.command === 'update_transactions') {
@@ -342,7 +655,7 @@ app.post('/api/advisor/execute', async (req, res) => {
       }
 
       if (matchedTxns.length === 0) {
-        return res.json({ success: true, updatedCount: 0, message: 'No transactions matched the filters.' });
+        return res.json({ success: true, updatedCount: 0, message: 'No transactions matched the filters.', backupFile });
       }
 
       // Update matching transactions
@@ -354,12 +667,14 @@ app.post('/api/advisor/execute', async (req, res) => {
         await api.updateTransaction(t.id, updates);
       }
 
+      await api.sync();
       await buildLookups();
 
       return res.json({
         success: true,
         updatedCount: matchedTxns.length,
-        message: `Successfully updated ${matchedTxns.length} transaction(s).`
+        message: `Successfully updated ${matchedTxns.length} transaction(s).`,
+        backupFile
       });
 
     } else if (action.command === 'create_rule') {
@@ -413,12 +728,14 @@ app.post('/api/advisor/execute', async (req, res) => {
       }
 
       const createdRule = await api.createRule(rule);
+      await api.sync();
       await buildLookups();
 
       return res.json({
         success: true,
         ruleId: createdRule.id,
-        message: `Successfully created new rule.`
+        message: `Successfully created new rule.`,
+        backupFile
       });
 
     } else {
