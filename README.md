@@ -123,7 +123,7 @@ Concierge supports three AI provider modes to analyze and suggest category rules
    - Connects to OpenAI, OpenRouter, DeepSeek, Groq, or other custom endpoint services.
    - **Prerequisites:** Requires your provider's API Key and model name (e.g., `gpt-4o-mini`, `deepseek-chat`). You can specify custom Base URLs directly in settings.
 3. **Claude CLI:**
-   - Uses a local installation of the Claude CLI tool.
+   - Uses a local installation of the Claude Code (CLI tool) subscription.
    - **Prerequisites:** Requires the `claude` command line tool binary located at `~/.local/bin/claude`.
 
 ---
