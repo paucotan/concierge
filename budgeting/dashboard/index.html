@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Budget Dashboard</title>
+  <meta name="description" content="Personal budget dashboard featuring financial diagnostics, AI advisory coaching, and credit card reward simulators.">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
@@ -48,7 +49,17 @@
 
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8 fade-in">
-      <h1 class="text-2xl font-light tracking-wide text-white/90">Budget Dashboard</h1>
+      <div class="flex items-center gap-6">
+        <h1 class="text-2xl font-light tracking-wide text-white/90">Budget Dashboard</h1>
+        <div class="flex items-center bg-white/[0.03] border border-border rounded-lg p-0.5">
+          <button id="tab-dashboard" class="text-sm px-3 py-1.5 rounded-md text-white font-medium bg-white/10 transition-all">
+            Dashboard
+          </button>
+          <button id="tab-insights" class="text-sm px-3 py-1.5 rounded-md text-white/40 hover:text-white/70 transition-all">
+            Insights
+          </button>
+        </div>
+      </div>
       <div class="flex items-center gap-2 flex-wrap">
         <select id="month-select" class="bg-card border border-border text-white/70 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-white/20 w-full sm:w-auto">
           <option value="">Loading…</option>
@@ -81,6 +92,7 @@
       <!-- Main content -->
       <div class="flex-1 min-w-0 w-full">
 
+        <div id="dashboard-main-view" class="w-full">
         <!-- Summary Cards -->
         <div id="summary-cards" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 fade-in">
           <div id="card-income-wrap" class="rounded-xl bg-card border border-border p-5 cursor-pointer hover:border-green-400/30 hover:bg-white/[0.03] transition-all">
@@ -174,47 +186,188 @@
             </table>
           </div>
         </div>
+      </div><!-- /dashboard-main-view -->
+
+        <!-- Insights View (hidden by default) -->
+        <div id="insights-view" class="hidden w-full space-y-6 fade-in">
+          
+          <!-- Insights Section Header -->
+          <div class="flex items-center justify-between flex-wrap gap-2 border-b border-white/5 pb-4">
+            <div class="text-white/60 text-xs font-semibold uppercase tracking-wider">Antigravity Financial Intelligence</div>
+            <button id="btn-refresh-insights" class="text-xs px-2.5 py-1.5 rounded bg-white/[0.04] border border-border text-white/40 hover:text-white/70 hover:border-white/20 transition-all flex items-center gap-1.5" title="Force Recalculate Insights">
+              <span>⟳</span> Refresh Insights
+            </button>
+          </div>
+          
+          <!-- Top Row: Pulse & Ratios -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            
+            <!-- Pulse Check Card -->
+            <div class="rounded-xl bg-card border border-border p-5 flex flex-col justify-between">
+              <div>
+                <div class="text-white/30 text-xs uppercase tracking-widest mb-4">Pulse Check</div>
+                <div class="flex items-baseline gap-3 mb-2">
+                  <span id="pulse-percentage" class="text-4xl font-light text-white">—</span>
+                  <span id="pulse-status" class="text-sm font-medium">—</span>
+                </div>
+                <p id="pulse-summary" class="text-sm text-white/50 leading-relaxed mb-4">—</p>
+              </div>
+              <div class="space-y-2 mt-auto">
+                <div class="flex justify-between text-xs text-white/40">
+                  <span>Actual Spend: <strong id="pulse-actual" class="text-white/70">$0.00</strong></span>
+                  <span>Baseline: <strong id="pulse-baseline" class="text-white/70">$0.00</strong></span>
+                </div>
+                <div class="w-full bg-white/5 h-2 rounded-full overflow-hidden">
+                  <div id="pulse-progress-bar" class="bg-indigo-500 h-full rounded-full transition-all duration-500" style="width: 0%;"></div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Fixed vs Variable Card -->
+            <div class="rounded-xl bg-card border border-border p-5 flex flex-col justify-between">
+              <div>
+                <div class="text-white/30 text-xs uppercase tracking-widest mb-4">Fixed vs. Variable Spending</div>
+                <div class="flex items-center gap-6 pb-2">
+                  <div class="flex-1 space-y-4">
+                    <div>
+                      <div class="flex justify-between text-sm mb-1">
+                        <span class="text-white/60">Fixed Costs</span>
+                        <span id="ratio-fixed-pct" class="text-white/80 font-medium">0%</span>
+                      </div>
+                      <div class="text-xs text-white/30" id="ratio-fixed-amt">$0.00 (Bills, Savings, Stocks)</div>
+                    </div>
+                    <div>
+                      <div class="flex justify-between text-sm mb-1">
+                        <span class="text-white/60">Variable Lifestyle</span>
+                        <span id="ratio-variable-pct" class="text-white/80 font-medium">0%</span>
+                      </div>
+                      <div class="text-xs text-white/30" id="ratio-variable-amt">$0.00 (Dining, Groceries, General, etc.)</div>
+                    </div>
+                  </div>
+                  <div class="relative w-20 h-20 flex-shrink-0 flex items-center justify-center">
+                    <canvas id="ratio-donut-chart" class="absolute inset-0"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Middle Row: Optimization Alpha Banner -->
+          <div class="rounded-xl bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 border border-indigo-500/20 p-5">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div class="space-y-1">
+                <div class="text-indigo-400 text-xs uppercase tracking-widest font-semibold">Reward Optimization Alpha</div>
+                <h2 id="optimization-alpha-title" class="text-lg font-light text-white/90 leading-snug">
+                  Analyzing credit card rewards based on your spending history...
+                </h2>
+              </div>
+              <div class="px-4 py-2 bg-indigo-500/20 border border-indigo-500/30 rounded-lg text-center flex-shrink-0">
+                <div class="text-white/40 text-[10px] uppercase tracking-wider">Net Annual Gain</div>
+                <div id="optimization-alpha-val" class="text-xl font-medium text-indigo-300">$0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Columns: CC Simulator, Coach & AI Advisor -->
+          <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            
+            <!-- CC Optimizer Details (2 cols on lg) -->
+            <div class="lg:col-span-2 rounded-xl bg-card border border-border p-5 flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <div class="text-white/30 text-xs uppercase tracking-widest">Credit Card Simulator Rankings</div>
+                  <div class="flex items-center gap-4">
+                    <button id="btn-reset-cc-compare" class="hidden text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition-colors">Reset Selection</button>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-white/30">Total spend analyzed:</span>
+                      <span id="cc-total-spend-analyzed" class="text-xs text-white/60 font-semibold">$0.00</span>
+                    </div>
+                  </div>
+                </div>
+                <!-- Dynamic Comparison Banner (visible when exactly 2 cards checked) -->
+                <div id="cc-comparison-vs-banner" class="hidden rounded-lg bg-indigo-500/10 border border-indigo-500/20 p-4 mb-4 space-y-2"></div>
+                <div class="overflow-x-auto mb-4">
+                  <table class="w-full text-xs text-left">
+                    <thead>
+                      <tr class="text-white/30 uppercase tracking-wider border-b border-white/5">
+                        <th class="py-2 w-10 text-center">Active</th>
+                        <th class="py-2">Card</th>
+                        <th class="py-2 text-right">Fee</th>
+                        <th class="py-2 text-right">Rewards</th>
+                        <th class="py-2 text-right font-medium text-white/70">Net Benefit</th>
+                        <th class="py-2 text-right text-indigo-400">Alpha</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cc-sim-rows" class="divide-y divide-white/5"></tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <!-- CC chart -->
+              <div class="h-36 relative mt-4">
+                <canvas id="chart-cc-comparison"></canvas>
+              </div>
+            </div>
+
+            <!-- Mindful Coach & Leaks (1 col on lg) -->
+            <div class="flex flex-col gap-4">
+              <!-- Leaks Card -->
+              <div class="rounded-xl bg-card border border-border p-5">
+                <div class="text-white/30 text-xs uppercase tracking-widest mb-3">Creeping Leaks Warning</div>
+                <div id="leaks-container" class="space-y-2 max-h-40 overflow-y-auto pr-1 text-xs">
+                  <p class="text-white/30 italic">No creeping leaks detected.</p>
+                </div>
+              </div>
+
+              <!-- AI Coach Card -->
+              <div class="rounded-xl bg-gradient-to-b from-card to-card/50 border border-border p-5 flex-1">
+                <div class="text-white/30 text-xs uppercase tracking-widest mb-3">The Mindful Prompt</div>
+                <div id="ai-coach-content" class="text-xs text-white/70 leading-relaxed space-y-3 advisor-msg">
+                  <p class="text-white/30 italic text-center pt-8">Generating mindful reflections...</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- AI Advisor Sidebar -->
+            <div id="advisor-sidebar" class="rounded-xl bg-card border border-border overflow-hidden flex flex-col h-[480px]">
+              <!-- Sidebar header -->
+              <div class="px-4 py-3 border-b border-white/[0.06] flex-shrink-0 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div id="advisor-title" class="text-white/30 text-xs uppercase tracking-widest">AI Advisor</div>
+                  <button id="btn-refresh-brief" class="text-white/25 hover:text-white/60 transition-colors text-sm font-medium leading-none pb-0.5" title="Refresh Snapshot">⟳</button>
+                </div>
+                <button id="btn-collapse-advisor" class="md:hidden text-white/20 hover:text-white/50 transition-colors text-xs leading-none" title="Close">✕</button>
+              </div>
+              <!-- Messages area -->
+              <div id="advisor-messages" class="flex-1 overflow-y-auto p-4 space-y-3">
+                <p id="advisor-placeholder" class="text-white/15 text-xs text-center pt-6 leading-relaxed">
+                  Ask anything about<br>your finances
+                </p>
+              </div>
+              <!-- Input area -->
+              <div id="advisor-input-area" class="p-3 border-t border-white/[0.06] flex-shrink-0">
+                <textarea id="advisor-input" rows="2"
+                  placeholder="Ask anything…"
+                  class="w-full bg-surface border border-border text-white/60 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-white/20 placeholder:text-white/20 resize-none"></textarea>
+                <button id="btn-get-insights"
+                  class="mt-2 w-full text-sm py-2 rounded-lg bg-white/[0.04] border border-border text-white/40 hover:text-white/70 hover:border-white/20 transition-all">
+                  Get Insights
+                </button>
+              </div>
+            </div>
+
+          </div>
 
         <!-- Footer -->
         <div class="mt-6 text-center text-white/15 text-xs">Concierge Budget Dashboard</div>
 
-      </div><!-- /main content -->
+      </div><!-- /insights-view -->
 
-      <!-- AI Advisor Sidebar -->
-      <div id="advisor-sidebar" class="flex-shrink-0 md:sticky md:top-6 rounded-xl bg-card border border-border overflow-hidden transition-all duration-200 w-full md:w-80 md:h-[calc(100vh-3rem)]">
+    </div><!-- /main content -->
 
-        <!-- Sidebar header -->
-        <div class="px-4 py-3 border-b border-white/[0.06] flex-shrink-0 flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <div id="advisor-title" class="text-white/30 text-xs uppercase tracking-widest">AI Advisor</div>
-            <button id="btn-refresh-brief" class="text-white/25 hover:text-white/60 transition-colors text-sm font-medium leading-none pb-0.5" title="Refresh Snapshot">⟳</button>
-          </div>
-          <button id="btn-collapse-advisor" class="text-white/20 hover:text-white/50 transition-colors text-xs leading-none" title="Collapse">‹</button>
-        </div>
+  </div><!-- /two-column layout -->
 
-        <!-- Messages area -->
-        <div id="advisor-messages" class="flex-1 overflow-y-auto p-4 space-y-3" style="min-height: 200px;">
-          <p id="advisor-placeholder" class="text-white/15 text-xs text-center pt-6 leading-relaxed">
-            Ask anything about<br>your finances
-          </p>
-        </div>
-
-        <!-- Input area -->
-        <div id="advisor-input-area" class="p-3 border-t border-white/[0.06] flex-shrink-0">
-          <textarea id="advisor-input" rows="2"
-            placeholder="Ask anything…"
-            class="w-full bg-surface border border-border text-white/60 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-white/20 placeholder:text-white/20 resize-none"></textarea>
-          <button id="btn-get-insights"
-            class="mt-2 w-full text-sm py-2 rounded-lg bg-white/[0.04] border border-border text-white/40 hover:text-white/70 hover:border-white/20 transition-all">
-            Get Insights
-          </button>
-        </div>
-
-      </div><!-- /advisor sidebar -->
-
-    </div><!-- /two-column layout -->
-
-  </div>
+  </div><!-- /container -->
 
   <!-- Payee Detail Panel -->
   <div id="payee-panel" class="hidden fixed inset-0 z-50 bg-black/60 flex items-stretch sm:items-start justify-center sm:pt-16">

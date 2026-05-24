@@ -15,6 +15,22 @@ let catChartType = 'doughnut';
 let trendStacked = false;
 let advisorMonth = null;
 let conversationHistory = [];
+let activeTab = 'dashboard';
+let ccComparisonChart = null;
+let ratioDonutChart = null;
+let excludedCardIds = [];
+try {
+  const saved = localStorage.getItem('insights-excluded-cards');
+  excludedCardIds = saved ? JSON.parse(saved) : ['amex_simplycash_preferred'];
+} catch (e) {
+  excludedCardIds = ['amex_simplycash_preferred'];
+}
+
+let compareCardIds = [];
+let currentInsightsData = null;
+
+const INSIGHTS_CACHE_KEY = 'insights-data-v1';
+const INSIGHTS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 // ── Chart colors ─────────────────────────────────────────────────────────
 
@@ -27,6 +43,11 @@ const COLORS = [
 // ── Init ─────────────────────────────────────────────────────────────────
 
 async function init() {
+  // Ensure marked respects single line breaks
+  if (typeof marked !== 'undefined') {
+    marked.setOptions({ gfm: true, breaks: true });
+  }
+
   const months = await api('/api/months');
   allMonths = months;
   if (!months.length) return;
@@ -39,7 +60,39 @@ async function init() {
   document.getElementById('month-select').addEventListener('change', (e) => {
     currentMonth = e.target.value;
     updateExportLink();
+    if (activeTab === 'insights') {
+      loadInsights();
+    } else {
+      loadDashboard();
+    }
+  });
+
+  // Tab switching
+  const tabDashboard = document.getElementById('tab-dashboard');
+  const tabInsights = document.getElementById('tab-insights');
+  const mainView = document.getElementById('dashboard-main-view');
+  const insightsView = document.getElementById('insights-view');
+
+  tabDashboard.addEventListener('click', () => {
+    activeTab = 'dashboard';
+    tabDashboard.className = 'text-sm px-3 py-1.5 rounded-md text-white font-medium bg-white/10 transition-all';
+    tabInsights.className = 'text-sm px-3 py-1.5 rounded-md text-white/40 hover:text-white/70 transition-all';
+    mainView.classList.remove('hidden');
+    insightsView.classList.add('hidden');
+    document.getElementById('advisor-sidebar')?.classList.add('hidden');
+    document.getElementById('btn-advisor-mobile')?.classList.add('hidden');
     loadDashboard();
+  });
+
+  tabInsights.addEventListener('click', () => {
+    activeTab = 'insights';
+    tabInsights.className = 'text-sm px-3 py-1.5 rounded-md text-white font-medium bg-white/10 transition-all';
+    tabDashboard.className = 'text-sm px-3 py-1.5 rounded-md text-white/40 hover:text-white/70 transition-all';
+    mainView.classList.add('hidden');
+    insightsView.classList.remove('hidden');
+    document.getElementById('advisor-sidebar')?.classList.remove('hidden');
+    document.getElementById('btn-advisor-mobile')?.classList.remove('hidden');
+    loadInsights();
   });
 
   // Sort headers
@@ -75,13 +128,19 @@ async function init() {
   document.getElementById('advisor-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); loadAdvisor(); }
   });
-  document.getElementById('btn-collapse-advisor').addEventListener('click', toggleAdvisor);
-  document.getElementById('btn-advisor-mobile').addEventListener('click', showAdvisorMobile);
+  document.getElementById('btn-collapse-advisor')?.addEventListener('click', toggleAdvisor);
+  document.getElementById('btn-advisor-mobile')?.addEventListener('click', showAdvisorMobile);
   document.getElementById('btn-refresh-brief')?.addEventListener('click', () => {
     localStorage.removeItem(BRIEF_CACHE_KEY);
     const messages = document.getElementById('advisor-messages');
     messages.innerHTML = '';
     loadAdvisorBrief();
+  });
+
+  // Reset comparison checks
+  document.getElementById('btn-reset-cc-compare')?.addEventListener('click', () => {
+    compareCardIds = [];
+    renderCcSimulator();
   });
 
   // Payee panel close
@@ -122,6 +181,48 @@ async function init() {
     loadTrendChart();
   });
   document.getElementById('trend-months-select').addEventListener('change', loadTrendChart);
+
+  // CC Sim rows interactions
+  const ccSimRows = document.getElementById('cc-sim-rows');
+  if (ccSimRows) {
+    ccSimRows.addEventListener('click', (e) => {
+      const toggleCheck = e.target.closest('.cc-toggle-use');
+      if (toggleCheck) {
+        const cardId = toggleCheck.getAttribute('data-id');
+        toggleCardExclusion(cardId);
+        return;
+      }
+      
+      const toggleExclude = e.target.closest('.cc-toggle-exclude');
+      if (toggleExclude) {
+        e.stopPropagation();
+        const cardId = toggleExclude.getAttribute('data-id');
+        toggleCardExclusionPersistent(cardId);
+        return;
+      }
+      
+      const clickableTd = e.target.closest('.cc-row-toggle');
+      if (clickableTd) {
+        const tr = clickableTd.closest('tr');
+        if (tr && tr.hasAttribute('data-card-id')) {
+          const cardId = tr.getAttribute('data-card-id');
+          toggleCardDetails(cardId);
+        }
+      }
+    });
+  }
+
+  // Refresh Insights button binding
+  const btnRefreshInsights = document.getElementById('btn-refresh-insights');
+  if (btnRefreshInsights) {
+    btnRefreshInsights.addEventListener('click', () => {
+      loadInsights(true); // forceRefresh = true
+    });
+  }
+
+  // Set initial advisor sidebar visibility (hidden on dashboard by default)
+  document.getElementById('advisor-sidebar')?.classList.add('hidden');
+  document.getElementById('btn-advisor-mobile')?.classList.add('hidden');
 
   loadDashboard();
   loadAdvisorBrief();
@@ -599,10 +700,15 @@ function appendBriefMessage(content) {
   const messages = document.getElementById('advisor-messages');
   const placeholder = document.getElementById('advisor-placeholder');
   if (placeholder) placeholder.remove();
+  
+  if (!content || !content.trim()) {
+    appendAdvisorMessage('error', 'The advisor returned an empty response. Please try again or check your AI provider.');
+    return;
+  }
+
   const div = document.createElement('div');
-  div.className = 'advisor-msg text-white/60 text-xs leading-relaxed';
-  div.style.whiteSpace = 'pre-line';
-  div.textContent = content;
+  div.className = 'advisor-msg text-white/60 text-xs leading-relaxed space-y-2';
+  div.innerHTML = typeof marked !== 'undefined' ? marked.parse(content) : content;
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
 }
@@ -622,13 +728,17 @@ async function loadAdvisorBrief() {
 
   const loadingEl = appendAdvisorMessage('loading', '');
   try {
-    const { insights, month } = await api(`/api/advisor-brief`);
+    const data = await api(`/api/advisor-brief`);
     loadingEl.remove();
-    localStorage.setItem(BRIEF_CACHE_KEY, JSON.stringify({ insights, month, timestamp: Date.now() }));
-    appendBriefMessage(insights);
+    if (data.insights) {
+      localStorage.setItem(BRIEF_CACHE_KEY, JSON.stringify({ insights: data.insights, month: data.month, timestamp: Date.now() }));
+      appendBriefMessage(data.insights);
+    } else {
+      appendAdvisorMessage('error', 'Advisor brief returned no insights.');
+    }
   } catch (err) {
     loadingEl.remove();
-    appendAdvisorMessage('error', err.message);
+    appendAdvisorMessage('error', `Brief failed: ${err.message}`);
   }
 }
 
@@ -915,14 +1025,14 @@ function appendAdvisorMessage(role, content, action = null) {
     div.className = 'flex justify-end';
     div.innerHTML = `<div class="bg-white/8 rounded-xl rounded-tr-sm px-3 py-2 text-white/55 text-xs max-w-[90%]">${esc(content)}</div>`;
   } else if (role === 'loading') {
-    div.className = 'flex gap-1.5 items-center';
+    div.className = 'flex gap-1.5 items-center advisor-loading-msg';
     div.id = 'advisor-loading';
     div.innerHTML = `
       <span class="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style="animation-delay:0ms"></span>
       <span class="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style="animation-delay:150ms"></span>
       <span class="w-1.5 h-1.5 rounded-full bg-white/20 animate-bounce" style="animation-delay:300ms"></span>`;
   } else if (role === 'error') {
-    div.className = 'text-red-400/60 text-xs';
+    div.className = 'advisor-msg p-3 rounded-lg bg-red-500/5 border border-red-500/20 text-red-400/80 text-xs italic';
     div.textContent = `Error: ${content}`;
   } else {
     div.className = 'advisor-msg text-white/60 text-xs leading-relaxed space-y-2';
@@ -1209,6 +1319,495 @@ function renderTrendChart(data) {
       },
     },
   });
+}
+
+let insightsLoading = false;
+
+async function loadInsights(forceRefresh = false) {
+  const cacheKey = `${INSIGHTS_CACHE_KEY}_${currentMonth}`;
+  if (!forceRefresh) {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const cache = JSON.parse(raw);
+        if (cache && (Date.now() - cache.timestamp) < INSIGHTS_CACHE_TTL) {
+          if (ccComparisonChart) { ccComparisonChart.destroy(); ccComparisonChart = null; }
+          if (ratioDonutChart) { ratioDonutChart.destroy(); ratioDonutChart = null; }
+          renderInsights(cache.data);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load cached insights, fetching fresh data...", e);
+      localStorage.removeItem(cacheKey);
+    }
+  }
+
+  if (insightsLoading) return;
+  insightsLoading = true;
+
+  // Set loading states
+  document.getElementById('pulse-percentage').textContent = '—';
+  document.getElementById('pulse-status').textContent = 'Loading…';
+  document.getElementById('pulse-summary').textContent = 'Fetching current month diagnostics...';
+  document.getElementById('pulse-actual').textContent = '$0.00';
+  document.getElementById('pulse-baseline').textContent = '$0.00';
+  document.getElementById('pulse-progress-bar').style.width = '0%';
+  
+  document.getElementById('ratio-fixed-pct').textContent = '0%';
+  document.getElementById('ratio-fixed-amt').textContent = '$0.00 (Bills, Savings, Stocks)';
+  document.getElementById('ratio-variable-pct').textContent = '0%';
+  document.getElementById('ratio-variable-amt').textContent = '$0.00 (Dining, Groceries, General, etc.)';
+  
+  document.getElementById('optimization-alpha-title').textContent = 'Analyzing credit card rewards based on your spending history...';
+  document.getElementById('optimization-alpha-val').textContent = '$0.00';
+  
+  document.getElementById('cc-total-spend-analyzed').textContent = '$0.00';
+  document.getElementById('cc-sim-rows').innerHTML = '<tr><td colspan="5" class="py-4 text-center text-white/30">Running simulations...</td></tr>';
+  
+  document.getElementById('leaks-container').innerHTML = '<p class="text-white/30 italic">Checking for leaks...</p>';
+  document.getElementById('ai-coach-content').innerHTML = '<p class="text-white/30 italic text-center pt-8">Generating mindful reflections...</p>';
+
+  if (ccComparisonChart) { ccComparisonChart.destroy(); ccComparisonChart = null; }
+  if (ratioDonutChart) { ratioDonutChart.destroy(); ratioDonutChart = null; }
+
+  // Clean any previous error notices
+  const iv = document.getElementById('insights-view');
+  if (iv) {
+    const existingErr = iv.querySelector('.insights-error-notice');
+    if (existingErr) existingErr.remove();
+  }
+
+  try {
+    const data = await api(`/api/insights?month=${currentMonth}`);
+    localStorage.setItem(cacheKey, JSON.stringify({ data, timestamp: Date.now() }));
+    renderInsights(data);
+  } catch (err) {
+    console.error("loadInsights error:", err);
+    const pulseSummary = document.getElementById('pulse-summary');
+    if (pulseSummary) pulseSummary.textContent = `Error loading insights: ${err.message}`;
+    const aiCoachContent = document.getElementById('ai-coach-content');
+    if (aiCoachContent) aiCoachContent.innerHTML = `<p class="text-red-400/80">Failed to load: ${err.message}</p>`;
+    
+    // Inject a global error notice at the top of the insights view
+    if (iv) {
+      const errNotice = document.createElement('div');
+      errNotice.className = 'insights-error-notice p-4 mb-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-mono overflow-auto';
+      errNotice.innerHTML = `<strong>Error Loading Insights:</strong> ${err.message}<br><pre class="mt-2 text-[10px]">${err.stack || ''}</pre>`;
+      iv.insertBefore(errNotice, iv.firstChild);
+    }
+  } finally {
+    insightsLoading = false;
+  }
+}
+
+function renderInsights(data) {
+  currentInsightsData = data;
+
+  const pulse = data.pulseCheck;
+  const ratios = data.ratios;
+  const leaks = data.leaks;
+
+  // 1. Render Pulse Check
+  const pctStr = pulse.percentage >= 0 ? `+${pulse.percentage}%` : `${pulse.percentage}%`;
+  const statusStr = pulse.diff >= 0 ? 'Above Baseline' : 'Below Baseline';
+  
+  const percentageEl = document.getElementById('pulse-percentage');
+  percentageEl.textContent = pctStr;
+  percentageEl.className = `text-4xl font-light ${pulse.diff >= 0 ? 'text-red-400/80' : 'text-green-400/80'}`;
+
+  const statusEl = document.getElementById('pulse-status');
+  statusEl.textContent = statusStr;
+  statusEl.className = `text-sm font-medium ${pulse.diff >= 0 ? 'text-red-400/50' : 'text-green-400/50'}`;
+
+  const compLabel = pulse.isProrated ? 'prorated baseline' : 'baseline';
+  const actionWord = pulse.diff >= 0 ? 'above' : 'below';
+  document.getElementById('pulse-summary').textContent = 
+    `You are currently spending ${fmt(Math.abs(pulse.diff))} ${actionWord} your ${compLabel} of ${fmt(pulse.isProrated ? pulse.compBaseline : pulse.baselineSpend)}.`;
+
+  document.getElementById('pulse-actual').textContent = fmt(pulse.actualSpend);
+  document.getElementById('pulse-baseline').textContent = fmt(pulse.isProrated ? pulse.compBaseline : pulse.baselineSpend);
+
+  const baselineToUse = pulse.isProrated ? pulse.compBaseline : pulse.baselineSpend;
+  const progressPct = baselineToUse > 0 ? Math.min(120, (pulse.actualSpend / baselineToUse) * 100) : 0;
+  
+  const progressBar = document.getElementById('pulse-progress-bar');
+  progressBar.style.width = `${Math.min(100, progressPct)}%`;
+  if (pulse.diff > 0) {
+    progressBar.className = 'bg-red-500 h-full rounded-full transition-all duration-500';
+  } else {
+    progressBar.className = 'bg-green-500 h-full rounded-full transition-all duration-500';
+  }
+
+  // 2. Render Ratios & Donut Chart
+  document.getElementById('ratio-fixed-pct').textContent = `${ratios.fixedRatio}%`;
+  document.getElementById('ratio-fixed-amt').textContent = `${fmt(ratios.fixed)} (Fixed Costs)`;
+  document.getElementById('ratio-variable-pct').textContent = `${ratios.variableRatio}%`;
+  document.getElementById('ratio-variable-amt').textContent = `${fmt(ratios.variable)} (Variable Lifestyle)`;
+
+  const donutCtx = document.getElementById('ratio-donut-chart');
+  if (ratioDonutChart) ratioDonutChart.destroy();
+  ratioDonutChart = new Chart(donutCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Fixed', 'Variable'],
+      datasets: [{
+        data: [ratios.fixed, ratios.variable],
+        backgroundColor: ['#6366f1', '#f43f5e'],
+        borderWidth: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '70%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.label}: ${fmt(ctx.raw)}`
+          }
+        }
+      }
+    }
+  });
+
+  // 3. Render Leaks
+  const leaksContainer = document.getElementById('leaks-container');
+  if (leaks.length === 0) {
+    leaksContainer.innerHTML = '<p class="text-white/30 italic">No creeping leaks detected.</p>';
+  } else {
+    leaksContainer.innerHTML = leaks.map(l => `
+      <div class="flex items-center justify-between border-b border-white/5 py-1.5 last:border-0">
+        <div>
+          <span class="font-medium text-white/70">${esc(l.payee)}</span>
+          <div class="text-[10px] text-white/30">${l.count} transactions · Avg ${fmt(l.average)}</div>
+        </div>
+        <span class="font-mono text-white/50 font-medium">${fmt(l.total)}</span>
+      </div>
+    `).join('');
+  }
+
+  // 4. Render CC Simulator
+  renderCcSimulator();
+
+  // 5. Render AI Mindful Prompt
+  const aiCoach = document.getElementById('ai-coach-content');
+  aiCoach.innerHTML = marked.parse(data.aiInsights || 'No reflections could be generated.');
+}
+
+function renderCcSimulator() {
+  if (!currentInsightsData) return;
+
+  const cc = currentInsightsData.ccMetrics;
+  const allCards = cc.cards;
+  const current = allCards.find(c => c.isCurrent);
+  
+  // Base active cards for recommendation and chart on selected cards if any are checked,
+  // otherwise default to all non-excluded cards.
+  const activeCards = compareCardIds.length > 0
+    ? allCards.filter(c => compareCardIds.includes(c.id))
+    : allCards.filter(c => !excludedCardIds.includes(c.id));
+    
+  const winner = activeCards[0]; // activeCards is already sorted by net benefit descending
+
+  // Update Header Reset Button
+  const resetBtn = document.getElementById('btn-reset-cc-compare');
+  if (resetBtn) {
+    if (compareCardIds.length > 0) {
+      resetBtn.classList.remove('hidden');
+    } else {
+      resetBtn.classList.add('hidden');
+    }
+  }
+
+  // Update Comparison VS Banner
+  const compBanner = document.getElementById('cc-comparison-vs-banner');
+  if (compareCardIds.length === 2) {
+    const cardA = allCards.find(c => c.id === compareCardIds[0]);
+    const cardB = allCards.find(c => c.id === compareCardIds[1]);
+
+    if (cardA && cardB) {
+      const sorted = [cardA, cardB].sort((x, y) => y.net - x.net);
+      const betterCard = sorted[0];
+      const otherCard = sorted[1];
+      const netDelta = betterCard.net - otherCard.net;
+
+      // Calculate category deltas
+      const catDeltas = [];
+      for (const catKey of Object.keys(betterCard.categoryBreakdown)) {
+        const valA = betterCard.categoryBreakdown[catKey].rewards;
+        const valB = otherCard.categoryBreakdown[catKey].rewards;
+        const diff = valA - valB;
+        if (diff !== 0) {
+          catDeltas.push({
+            category: catKey,
+            diff: +diff.toFixed(2),
+            rateLabelA: betterCard.categoryBreakdown[catKey].rateLabel,
+            rateLabelB: otherCard.categoryBreakdown[catKey].rateLabel
+          });
+        }
+      }
+
+      const deltasHtml = catDeltas.map(d => {
+        const positive = d.diff > 0;
+        const amountStr = fmt(Math.abs(d.diff));
+        const categoryLabel = d.category.charAt(0).toUpperCase() + d.category.slice(1);
+        if (positive) {
+          return `<div>🟢 <strong>${categoryLabel}</strong>: <strong>${betterCard.name.split(' (')[0]}</strong> is better by <strong>+${amountStr}</strong> (${d.rateLabelA} vs ${d.rateLabelB})</div>`;
+        } else {
+          return `<div>🔵 <strong>${categoryLabel}</strong>: <strong>${otherCard.name.split(' (')[0]}</strong> is better by <strong>+${amountStr}</strong> (${d.rateLabelB} vs ${d.rateLabelA})</div>`;
+        }
+      }).join('');
+
+      compBanner.innerHTML = `
+        <div class="flex items-start justify-between gap-3 text-xs">
+          <div class="space-y-1.5 flex-1">
+            <div class="text-indigo-400 font-semibold uppercase tracking-wider text-[10px]">Side-by-Side Comparison</div>
+            <div class="text-white font-medium text-[13px]">
+              <strong>${esc(betterCard.name)}</strong> outperforms <strong>${esc(otherCard.name)}</strong> by <strong class="text-indigo-300 font-semibold">${fmt(netDelta)}/yr</strong> net benefit.
+            </div>
+            <div class="text-white/50 text-[11px] pt-1.5 space-y-1 border-t border-white/5 mt-1.5">
+              ${deltasHtml || '<div>No differences in category rewards.</div>'}
+            </div>
+          </div>
+          <button id="btn-clear-comparison-checks" class="text-white/30 hover:text-white/60 text-[10px] uppercase font-semibold tracking-wider transition-colors pt-0.5">Reset</button>
+        </div>
+      `;
+      compBanner.classList.remove('hidden');
+
+      document.getElementById('btn-clear-comparison-checks').addEventListener('click', () => {
+        compareCardIds = [];
+        renderCcSimulator();
+      });
+    } else {
+      compBanner.classList.add('hidden');
+      compBanner.innerHTML = '';
+    }
+  } else if (compareCardIds.length > 2) {
+    const sortedSelected = allCards.filter(c => compareCardIds.includes(c.id)).sort((x, y) => y.net - x.net);
+    const winnerSel = sortedSelected[0];
+    compBanner.innerHTML = `
+      <div class="flex items-start justify-between gap-3 text-xs">
+        <div class="space-y-1.5 flex-1">
+          <div class="text-indigo-400 font-semibold uppercase tracking-wider text-[10px]">Active Selection Comparison</div>
+          <div class="text-white font-medium text-[13px]">
+            Winner of selected is <strong>${esc(winnerSel.name)}</strong> (Net: ${fmt(winnerSel.net)}).
+          </div>
+          <div class="text-white/50 text-[11px] pt-1.5 space-y-1 border-t border-white/5 mt-1.5">
+            ${sortedSelected.map((c, i) => `<div>${i+1}. <strong>${esc(c.name.split(' (')[0])}</strong>: ${fmt(c.net)}/yr (Fee: ${fmt(c.annualFee)})</div>`).join('')}
+          </div>
+        </div>
+        <button id="btn-clear-comparison-checks" class="text-white/30 hover:text-white/60 text-[10px] uppercase font-semibold tracking-wider transition-colors pt-0.5">Reset</button>
+      </div>
+    `;
+    compBanner.classList.remove('hidden');
+
+    document.getElementById('btn-clear-comparison-checks').addEventListener('click', () => {
+      compareCardIds = [];
+      renderCcSimulator();
+    });
+  } else {
+    compBanner.classList.add('hidden');
+    compBanner.innerHTML = '';
+  }
+
+  // Update Alpha Banner
+  const alphaValEl = document.getElementById('optimization-alpha-val');
+  const alphaTitleEl = document.getElementById('optimization-alpha-title');
+
+  if (!winner || !current) {
+    alphaValEl.textContent = '$0.00';
+    alphaTitleEl.innerHTML = 'Please select at least one credit card to simulate.';
+  } else {
+    const alphaVal = winner.net - current.net;
+    alphaValEl.textContent = fmt(alphaVal);
+    
+    if (winner.id === current.id) {
+      alphaTitleEl.innerHTML = `Your current card <strong>${esc(winner.name)}</strong> is the most optimal card for your spending! Net annual gain is maximized.`;
+    } else {
+      alphaTitleEl.innerHTML = `By switching to <strong>${esc(winner.name)}</strong>, you could save <strong>${fmt(alphaVal)}</strong> more per year!`;
+    }
+  }
+
+  // Render Table Rows
+  document.getElementById('cc-total-spend-analyzed').textContent = fmt(cc.totalCcSpend);
+
+  const ccRows = document.getElementById('cc-sim-rows');
+  const totalCycles = currentInsightsData.simPeriod.length;
+
+  ccRows.innerHTML = allCards.map((c, idx) => {
+    const isExcluded = excludedCardIds.includes(c.id);
+    const isWinner = winner && c.id === winner.id;
+    const isChecked = compareCardIds.includes(c.id);
+    
+    const winnerMarker = isWinner ? '<span class="ml-1 text-[10px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded px-1 font-semibold uppercase tracking-wider">Winner</span>' : '';
+    const currentMarker = c.isCurrent ? '<span class="ml-1 text-[10px] bg-white/10 text-white/60 border border-white/15 rounded px-1 font-medium whitespace-nowrap">Current</span>' : '';
+    
+    let alphaStr = '';
+    let alphaClass = '';
+    if (c.isCurrent) {
+      alphaStr = '—';
+      alphaClass = 'text-white/20';
+    } else {
+      alphaStr = c.diffFromCurrent >= 0 ? `+${fmt(c.diffFromCurrent)}` : `${fmt(c.diffFromCurrent)}`;
+      alphaClass = c.diffFromCurrent >= 0 ? 'text-green-400 font-medium' : 'text-red-400/50';
+    }
+
+    const hideShowBtn = `
+      <button class="cc-toggle-exclude text-[10px] ${isExcluded ? 'text-indigo-400 hover:text-indigo-300 font-semibold' : 'text-white/20 hover:text-white/50'} ml-2" data-id="${c.id}" onclick="event.stopPropagation(); toggleCardExclusionPersistent('${c.id}');">
+        ${isExcluded ? 'Show' : 'Hide'}
+      </button>
+    `;
+
+    return `
+      <!-- Main Card Row -->
+      <tr class="hover:bg-white/[0.01] transition-colors border-b border-white/5 last:border-0 text-xs ${isExcluded ? 'opacity-40' : ''}" data-card-id="${c.id}">
+        <td class="py-2.5 text-center">
+          <input type="checkbox" class="cc-toggle-use cursor-pointer" data-id="${c.id}" ${isChecked ? 'checked' : ''} onclick="event.stopPropagation(); toggleCardExclusion('${c.id}');">
+        </td>
+        <td class="py-2.5 font-medium text-white/70 cursor-pointer cc-row-toggle">
+          <span class="flex items-center flex-wrap gap-1">
+            ${idx + 1}. ${esc(c.name)} ${winnerMarker} ${currentMarker} ${hideShowBtn}
+          </span>
+        </td>
+        <td class="py-2.5 text-right font-mono text-white/40 cursor-pointer cc-row-toggle">${fmt(c.annualFee)}</td>
+        <td class="py-2.5 text-right font-mono text-white/40 cursor-pointer cc-row-toggle">${fmt(c.rewards)}</td>
+        <td class="py-2.5 text-right font-mono font-medium text-white/70 cursor-pointer cc-row-toggle">${fmt(c.net)}</td>
+        <td class="py-2.5 text-right font-mono ${alphaClass} cursor-pointer cc-row-toggle">${alphaStr}</td>
+      </tr>
+      
+      <!-- Expandable Details Accordion Panel Row -->
+      <tr id="details-${c.id}" class="hidden bg-white/[0.01]">
+        <td colspan="6" class="p-4 border-b border-white/5">
+          <div class="bg-surface/50 border border-border p-4 rounded-lg space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="text-white/60 font-semibold text-xs flex items-center gap-2">
+                <span>Reward Calculation Details (Simulated over ${totalCycles} statement cycles)</span>
+              </div>
+              <div class="text-white/40 text-xs">Base Annual Fee: <strong class="text-white/70">${fmt(c.annualFee)}</strong></div>
+            </div>
+            
+            <div class="overflow-x-auto">
+              <table class="w-full text-[11px] text-left">
+                <thead>
+                  <tr class="text-white/30 uppercase tracking-wider border-b border-white/5">
+                    <th class="py-1">Category</th>
+                    <th class="py-1 text-right">Total Spend (Sim Period)</th>
+                    <th class="py-1 pl-4">Reward Rate Structure</th>
+                    <th class="py-1 text-right">Rewards (Sim Period)</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                  ${Object.entries(c.categoryBreakdown).map(([catKey, cat]) => {
+                    return `
+                      <tr>
+                        <td class="py-1.5 capitalize text-white/70">${catKey}</td>
+                        <td class="py-1.5 text-right font-mono text-white/60">${fmt(cat.spend)}</td>
+                        <td class="py-1.5 text-white/50 pl-4">${cat.rateLabel}</td>
+                        <td class="py-1.5 text-right font-mono text-white/70">${fmt(cat.rewards)}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Cap limit warnings section -->
+            ${Object.entries(c.categoryBreakdown)
+              .filter(([_, cat]) => cat.capExceededMonths > 0)
+              .map(([catKey, cat]) => {
+                return `
+                  <div class="text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-3 py-2 rounded text-[11px] flex items-start gap-2">
+                    <span class="mt-0.5">⚠️</span>
+                    <div>
+                      <strong>${catKey.charAt(0).toUpperCase() + catKey.slice(1)} Cap Exceeded:</strong> 
+                      Exceeded the reward limit in ${cat.capExceededMonths} out of ${totalCycles} statement cycles. 
+                      Spend exceeding the limit was calculated at the base/downgraded reward rate.
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // CC Comparison Chart
+  const ccCtx = document.getElementById('chart-cc-comparison');
+  if (ccComparisonChart) ccComparisonChart.destroy();
+
+  const labels = activeCards.map(c => c.name.split(' (')[0]);
+  const dataNet = activeCards.map(c => c.net);
+  const activeWinnerId = winner ? winner.id : null;
+  const chartColors = activeCards.map(c => {
+    if (c.id === activeWinnerId) return '#6366f1';
+    if (c.isCurrent) return 'rgba(255,255,255,0.25)';
+    return 'rgba(255,255,255,0.08)';
+  });
+
+  ccComparisonChart = new Chart(ccCtx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Net Reward Benefit ($)',
+        data: dataNet,
+        backgroundColor: chartColors,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `Net Benefit: ${fmt(ctx.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 9 }, maxRotation: 15, autoSkip: false },
+          grid: { display: false }
+        },
+        y: {
+          ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 9 }, callback: (v) => '$' + v },
+          grid: { color: 'rgba(255,255,255,0.04)' }
+        }
+      }
+    }
+  });
+}
+
+function toggleCardExclusion(cardId) {
+  const idx = compareCardIds.indexOf(cardId);
+  if (idx === -1) {
+    compareCardIds.push(cardId);
+  } else {
+    compareCardIds.splice(idx, 1);
+  }
+  renderCcSimulator();
+}
+
+function toggleCardExclusionPersistent(cardId) {
+  const idx = excludedCardIds.indexOf(cardId);
+  if (idx === -1) {
+    excludedCardIds.push(cardId);
+  } else {
+    excludedCardIds.splice(idx, 1);
+  }
+  localStorage.setItem('insights-excluded-cards', JSON.stringify(excludedCardIds));
+  renderCcSimulator();
+}
+
+function toggleCardDetails(cardId) {
+  const detailsRow = document.getElementById(`details-${cardId}`);
+  if (!detailsRow) return;
+  detailsRow.classList.toggle('hidden');
 }
 
 // ── Go ───────────────────────────────────────────────────────────────────

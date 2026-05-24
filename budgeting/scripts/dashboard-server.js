@@ -172,6 +172,88 @@ app.get('/api/months', async (req, res) => {
   }
 });
 
+// GET /api/insights?month=2026-03
+app.get('/api/insights', async (req, res) => {
+  const { month } = req.query;
+  if (!month) return res.status(400).json({ error: 'month is required' });
+
+  try {
+    const { runAnalysis } = require('./insights-engine');
+    const data = await runAnalysis(month, true);
+
+    const fmtLocal = (n) => {
+      const abs = Math.abs(n).toFixed(2);
+      return n < 0 ? `-$${abs}` : `$${abs}`;
+    };
+
+    // Construct AI prompt
+    const pulse = data.pulseCheck;
+    const cc = data.ccMetrics;
+    const ratios = data.ratios;
+    const leaks = data.leaks;
+
+    const ccTable = cc.cards.map((c, idx) => {
+      const winnerMarker = c.isWinner ? '★ WINNER' : ' ';
+      const diffStr = c.isCurrent ? 'Current' : (c.diffFromCurrent >= 0 ? `+${fmtLocal(c.diffFromCurrent)}` : fmtLocal(c.diffFromCurrent));
+      return `${idx + 1}. ${c.name.padEnd(35)} | Net: ${fmtLocal(c.net).padStart(8)} | Rewards: ${fmtLocal(c.rewards).padStart(8)} | Fee: ${fmtLocal(c.fees).padStart(6)} | vs. Current: ${diffStr.padStart(8)} ${winnerMarker}`;
+    }).join('\n');
+
+    const leaksText = leaks.length > 0 
+      ? leaks.map(l => `- **${l.payee}**: ${l.count} visits, total spend ${fmtLocal(l.total)} (avg. ${fmtLocal(l.average)} per visit)`).join('\n')
+      : 'No creeping leaks detected (high frequency, small transactions).';
+
+    const ratiosText = `Fixed Spending: ${fmtLocal(ratios.fixed)} (${ratios.fixedRatio}%)\nVariable Spending: ${fmtLocal(ratios.variable)} (${ratios.variableRatio}%)`;
+
+    const catBreakdownText = pulse.categoryBreakdown.map(c => `- **${c.name}**: ${fmtLocal(c.total)}`).join('\n');
+
+    const prompt = `You are a financial advisor and coach. Your role is to provide empathetic, non-shaming, and mindful lifestyle observations based on the user's spending data.
+    
+=== SYSTEM DESIGN CONSTRAINTS ===
+- DO NOT perform or modify any calculations yourself. The calculations are exact, deterministic, and provided below.
+- Keep your tone completely objective, supportive, and non-judgmental. Do not use shaming or punitive language. Focus on observing habits and reflecting patterns.
+
+=== CALCULATED INSIGHTS DATA ===
+Focus Month: ${month}
+Simulation Period: ${data.simPeriod.join(', ')}
+
+1. PULSE CHECK
+- Focus Month Spending: ${fmtLocal(pulse.actualSpend)}
+- Rolling 3-Month Average Baseline: ${fmtLocal(pulse.baselineSpend)}
+${pulse.isProrated ? `- Prorated Baseline (up to Day ${pulse.elapsedDays} of ${pulse.totalDays}): ${fmtLocal(pulse.compBaseline)}` : ''}
+- Absolute Difference: ${pulse.diff >= 0 ? '+' : ''}${fmtLocal(pulse.diff)}
+- Percentage Change vs Baseline: ${pulse.percentage >= 0 ? '+' : ''}${pulse.percentage}%
+- Category Breakdown:
+${catBreakdownText}
+
+2. FIXED VS VARIABLE RATIO
+${ratiosText}
+
+3. CREEPING LEAKS (High frequency, low average cost)
+${leaksText}
+
+4. CREDIT CARD REWARD SIMULATION (Rolling 12 Months)
+Total Credit Card Transactions: ${cc.ccTransactionsCount}
+Total Credit Card Spend: ${fmtLocal(cc.totalCcSpend)}
+Card Rankings (highest net benefit first):
+${ccTable}
+
+=== YOUR TASK ===
+Generate the "Mindful Prompt" observations for the user based strictly on the data above.
+Your response should be in clean Markdown and contain two short sections:
+1. **Lifestyle Reflections**: Empathetic, data-backed observations about their spending momentum, fixed/variable ratio, or specific category accelerations. Avoid generic advice; refer directly to the numbers.
+2. **Creeping Leaks & Commitments**: Point out any creeping small expenses (leaks) and what they add up to, framing it as an invitation to reflect on whether these choices align with their needs.
+
+Do not repeat or recompute the credit card optimizer results in your section since they are shown separately. Focus entirely on behavioral coaching. Keep it concise, high-signal, and supportive.`;
+
+    const aiOutput = callAI(prompt);
+    data.aiInsights = aiOutput.trim();
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/transactions?month=2026-03&category=Food&payee=Starbucks
 app.get('/api/transactions', async (req, res) => {
   try {
