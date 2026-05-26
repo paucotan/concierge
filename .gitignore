@@ -43,3 +43,8 @@ budgeting/scripts/node_modules/
 *.csv
 *sync-report*.md
 budgeting/docs/actual-rules-setup.md
+budgeting/docs/README.md
+budgeting/docs/goals.md
+budgeting/docs/pipeline.md
+budgeting/docs/todos.md
+budgeting/docs/archive/

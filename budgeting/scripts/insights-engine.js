@@ -32,7 +32,7 @@ function isCreditCard(accountName) {
 const CARD_CONFIGS = [
   {
     id: 'bmo_cashback',
-    name: 'BMO CashBack Mastercard (Current)',
+    name: 'CashBack Mastercard (Current)',
     annualFee: 0,
     simulate: (monthlySpends) => {
       const breakdown = {
@@ -283,7 +283,7 @@ const CARD_CONFIGS = [
   },
   {
     id: 'bmo_cashback_world_elite',
-    name: 'BMO CashBack World Elite',
+    name: 'CashBack World Elite',
     annualFee: 120,
     simulate: (monthlySpends) => {
       const breakdown = {
