@@ -38,3 +38,8 @@ budgeting/scripts/.actual-cache/
 budgeting/scripts/ai-provider.json
 budgeting/scripts/node_modules/
 
+# Private financial data and rule setups
+*.zip
+*.csv
+*sync-report*.md
+budgeting/docs/actual-rules-setup.md
